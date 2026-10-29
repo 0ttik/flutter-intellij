@@ -5,31 +5,35 @@
  */
 package io.flutter.actions;
 
+import com.intellij.openapi.actionSystem.ActionUpdateThread;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.project.Project;
-import io.flutter.editor.FlutterMaterialIcons;
+import com.jetbrains.lang.dart.analytics.Analytics;
+import com.jetbrains.lang.dart.analytics.AnalyticsData;
 import io.flutter.run.daemon.DeviceService;
 import io.flutter.utils.FlutterModuleUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class DeviceSelectorRefresherAction extends AnAction {
-  public DeviceSelectorRefresherAction() {
-    super(FlutterMaterialIcons.getIconForName("refresh"));
-  }
-
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
-    if (project != null) {
-      DeviceService.getInstance(project).restart();
-    }
+    if (project == null) return;
+
+    Analytics.report(AnalyticsData.forAction(this, e));
+    DeviceService.getInstance(project).restart();
+  }
+
+  public @NotNull ActionUpdateThread getActionUpdateThread() {
+    return ActionUpdateThread.BGT;
   }
 
   @Override
   public void update(@NotNull AnActionEvent e) {
-    if (e.getProject() != null) {
-      e.getPresentation().setVisible(FlutterModuleUtils.hasInternalDartSdkPath(e.getProject()));
+    var project = e.getProject();
+    if (project != null) {
+      e.getPresentation().setVisible(FlutterModuleUtils.hasInternalDartSdkPath(project));
     }
   }
 }

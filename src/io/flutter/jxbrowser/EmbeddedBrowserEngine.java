@@ -5,15 +5,17 @@
  */
 package io.flutter.jxbrowser;
 
-import com.intellij.openapi.application.ApplicationListener;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfo;
+import io.flutter.utils.OpenApiUtils;
 import com.teamdev.jxbrowser.engine.Engine;
 import com.teamdev.jxbrowser.engine.EngineOptions;
 import com.teamdev.jxbrowser.engine.PasswordStore;
-import io.flutter.FlutterInitializer;
+import io.flutter.logging.PluginLogger;
+import io.flutter.settings.FlutterSettings;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.nio.file.Paths;
@@ -21,47 +23,60 @@ import java.nio.file.Paths;
 import static com.teamdev.jxbrowser.engine.RenderingMode.HARDWARE_ACCELERATED;
 import static com.teamdev.jxbrowser.engine.RenderingMode.OFF_SCREEN;
 
-public class EmbeddedBrowserEngine {
-  private static final Logger LOG = Logger.getInstance(EmbeddedBrowserEngine.class);
+public class EmbeddedBrowserEngine implements Disposable {
+  private static final @NotNull Logger LOG = PluginLogger.createLogger(EmbeddedBrowserEngine.class);
   private final Engine engine;
 
   public static EmbeddedBrowserEngine getInstance() {
-    return ServiceManager.getService(EmbeddedBrowserEngine.class);
+    return ApplicationManager.getApplication().getService(EmbeddedBrowserEngine.class);
   }
 
   public EmbeddedBrowserEngine() {
     final String dataPath = JxBrowserManager.DOWNLOAD_PATH + File.separatorChar + "user-data";
-    LOG.info("JxBrowser user data path: " + dataPath);
+    if (FlutterSettings.getInstance().isFilePathLoggingEnabled()) LOG.info("JxBrowser user data path: " + dataPath);
 
-    final EngineOptions options =
-      EngineOptions.newBuilder(SystemInfo.isWindows ? OFF_SCREEN : HARDWARE_ACCELERATED)
+    final EngineOptions.Builder optionsBuilder =
+      EngineOptions.newBuilder(SystemInfo.isMac ? HARDWARE_ACCELERATED : OFF_SCREEN)
         .userDataDir(Paths.get(dataPath))
         .passwordStore(PasswordStore.BASIC)
-        .addSwitch("--disable-features=NativeNotifications")
-        .build();
+        .addSwitch("--disable-features=NativeNotifications");
+
+    if (SystemInfo.isLinux) {
+      optionsBuilder.addSwitch("--force-device-scale-factor=1");
+    }
+
+    final EngineOptions options = optionsBuilder.build();
 
     Engine temp;
     try {
       temp = Engine.newInstance(options);
-    } catch (Exception ex) {
+    }
+    catch (Exception ex) {
       temp = null;
-      LOG.info(ex);
-      FlutterInitializer.getAnalytics().sendExpectedException("jxbrowser-engine", ex);
+      if (FlutterSettings.getInstance().isFilePathLoggingEnabled()) {
+        LOG.info(ex);
+      } else {
+        LOG.info("Exception when creating a new instance of JX Browser engine: " + ex.getMessage());
+      }
     }
     engine = temp;
 
-    ApplicationManager.getApplication().addApplicationListener(new ApplicationListener() {
-      @Override
-      public boolean canExitApplication() {
-        try {
-          if (engine != null && !engine.isClosed()) {
-            engine.close();
-          }
-        } catch (Exception ex) {
-          LOG.info(ex);
-          FlutterInitializer.getAnalytics().sendExpectedException("jxbrowswer-engine-close", ex);
+  }
+
+  @Override
+  public void dispose() {
+    OpenApiUtils.safeExecuteOnPooledThread(() -> {
+      try {
+        if (engine != null && !engine.isClosed()) {
+          engine.close();
         }
-        return true;
+      }
+      catch (Exception ex) {
+        if (FlutterSettings.getInstance().isFilePathLoggingEnabled()) {
+          LOG.info(ex);
+        } else {
+          LOG.info("Exception when closing JX Browser engine: " + ex.getMessage());
+        }
       }
     });
   }

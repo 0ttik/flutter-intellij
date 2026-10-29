@@ -8,7 +8,6 @@ package io.flutter.utils;
 import com.intellij.util.lang.UrlClassLoader;
 
 import java.io.File;
-import java.net.URL;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -24,6 +23,7 @@ public class FileUtils {
 
   /**
    * Makes a directory at the provided path.
+   *
    * @param path path of the directory to be created.
    * @return true if the directory already existed, or if it was successfully created; false if the directory could not be created.
    */
@@ -42,6 +42,7 @@ public class FileUtils {
 
   /**
    * Deletes a file at the provided path.
+   *
    * @param path path of the file to be deleted.
    * @return true if the file does not exist, or if it was successfully deleted; false if the file could not be deleted.
    */
@@ -53,27 +54,16 @@ public class FileUtils {
     return true;
   }
 
-  public void loadClass(ClassLoader classLoader, String path) throws Exception {
-    final UrlClassLoader urlClassLoader = (UrlClassLoader) classLoader;
-
-    final File file = new File(path);
-    if (!file.exists()) {
-      throw new Exception("File does not exist: " + file.getAbsolutePath());
-    }
-
-    final URL url = file.toURI().toURL();
-    urlClassLoader.addURL(url);
-  }
-
   /**
    * Loads a list of file paths with a class loader.
-   *
+   * <p>
    * This is only available for versions 211.4961.30 and later.
+   *
    * @param classLoader classloader that can be used as a UrlClassLoader to load the files.
-   * @param paths list of file paths to load.
+   * @param paths       list of file paths to load.
    */
   public void loadPaths(ClassLoader classLoader, List<Path> paths) {
-    final UrlClassLoader urlClassLoader = (UrlClassLoader) classLoader;
-    //urlClassLoader.addFiles(paths);
+    final UrlClassLoader urlClassLoader = (UrlClassLoader)classLoader;
+    urlClassLoader.addFiles(paths);
   }
 }

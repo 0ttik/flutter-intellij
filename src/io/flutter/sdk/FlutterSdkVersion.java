@@ -6,6 +6,8 @@
 package io.flutter.sdk;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.reflect.TypeToken;
+import com.google.gson.Gson;
 import com.intellij.openapi.util.Version;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
@@ -13,50 +15,47 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.Objects;
 
-public class FlutterSdkVersion implements Comparable<FlutterSdkVersion> {
+public final class FlutterSdkVersion implements Comparable<FlutterSdkVersion> {
   /**
-   * The minimum version we suggest people use.
-   */
-  private static final FlutterSdkVersion MIN_SUPPORTED_SDK = new FlutterSdkVersion("0.0.12");
-
-  /**
-   * The minimum version we suggest people use to enable track-widget-creation.
+   * The minimum version of the Flutter SDK that is still supported. A version less than this should trigger a warning to users that
+   * the Flutter plugin no longer supports the SDK version and we will not be fixing issues resulting from using this version.
    * <p>
-   * Before this version there were issues if you ran the app from the command
-   * line without the flag after running
+   * Note, this is for the Flutter SDK version, not the Dart SDK version, this mapping can be found:
+   * <a href="https://docs.flutter.dev/release/archive">Flutter SDK Release Archive list</a>.
+   * <p>
+   * This version was updated last on October 27, 2026.
    */
-  private static final FlutterSdkVersion MIN_SAFE_TRACK_WIDGET_CREATION_SDK = new FlutterSdkVersion("0.10.2");
+  @VisibleForTesting
+  @NotNull
+  public static final FlutterSdkVersion MIN_SDK_SUPPORTED = new FlutterSdkVersion("3.22.2");
 
   /**
-   * The version that supports --dart-define in the run command.
+   * The minimum version of the Flutter SDK that will be supported for 3 more months. A version less than this is either not supported or
+   * should trigger a warning to users that support for the version will be gone in an upcoming plugin version.
+   * <p>
+   * Note, this is for the Flutter SDK version, not the Dart SDK version, this mapping can be found:
+   * <a href="https://docs.flutter.dev/release/archive">Flutter SDK Release Archive list</a>.
+   * <p>
+   * This version was updated last on October 27, 2026.
    */
-  private static final FlutterSdkVersion MIN_DART_DEFINE_SDK = new FlutterSdkVersion("1.12.0");
+  @VisibleForTesting
+  @NotNull
+  public static final FlutterSdkVersion MIN_SDK_WITHOUT_SUNSET_WARNING = new FlutterSdkVersion("3.27.4");
 
-  /**
-   * The version of the stable channel that supports --androidx in the create command.
-   */
-  private static final FlutterSdkVersion MIN_PUB_OUTDATED_SDK = new FlutterSdkVersion("1.16.4");
+  @NotNull
+  private static final FlutterSdkVersion MIN_SUPPORTS_DEVTOOLS_MULTI_EMBED = new FlutterSdkVersion("3.23.0-0.1.pre");
 
-  /**
-   * The version that supports --platform in flutter create.
-   */
-  private static final FlutterSdkVersion MIN_CREATE_PLATFORMS_SDK = new FlutterSdkVersion("1.20.0");
+  @NotNull
+  public static final FlutterSdkVersion MIN_SUPPORTS_PROPERTY_EDITOR = new FlutterSdkVersion("3.32.0-0.1.pre");
 
-  /**
-   * The version that supports --config-only when configuring Xcode for opening a project.
-   */
-  private static final FlutterSdkVersion MIN_XCODE_CONFIG_ONLY = new FlutterSdkVersion("1.22.0-12.0.pre");
+  @NotNull
+  public static final FlutterSdkVersion MIN_SUPPORTS_WIDGET_PREVIEW = new FlutterSdkVersion("3.38.0-0.0.pre");
 
-  /**
-   * The last version of stable that does not support --platform in flutter create.
-   */
-  private static final FlutterSdkVersion MAX_STABLE_NO_PLATFORMS_SDK = new FlutterSdkVersion("1.22.6");
-
-  /**
-   * The version that supports --devtools-server-address in flutter run.
-   */
-  private static final FlutterSdkVersion MIN_PASS_DEVTOOLS_SDK = new FlutterSdkVersion("1.26.0-11.0.pre");
+  @NotNull
+  public static final String UNKNOWN_VERSION = "unknown version";
 
   @Nullable
   private final Version version;
@@ -64,32 +63,42 @@ public class FlutterSdkVersion implements Comparable<FlutterSdkVersion> {
   private final String versionText;
   @Nullable
   private final Version betaVersion;
-  private final int masterVersion;
+  private final int mainVersion;
 
   @VisibleForTesting
   public FlutterSdkVersion(@Nullable String versionString) {
     versionText = versionString;
     if (versionString != null) {
-      final String[] split = versionString.split("-");
+      final @NotNull String[] split = versionString.split("-");
       version = Version.parseVersion(split[0]);
 
       if (split.length > 1) {
         betaVersion = Version.parseVersion(split[1]);
-        final String[] parts = split[1].split("\\.");
-        masterVersion = parts.length > 3 ? Integer.parseInt(parts[3]) : 0;
-      } else {
-        betaVersion = null;
-        masterVersion = 0;
+        final @NotNull String[] parts = split[1].split("\\.");
+        mainVersion = parts.length > 3 ? Integer.parseInt(parts[3]) : 0;
       }
-    } else {
+      else {
+        betaVersion = null;
+        mainVersion = 0;
+      }
+    }
+    else {
       version = null;
       betaVersion = null;
-      masterVersion = 0;
+      mainVersion = 0;
     }
   }
 
   @NotNull
   public static FlutterSdkVersion readFromSdk(@NotNull VirtualFile sdkHome) {
+    // First check for the file at <sdkHome>/bin/cache/flutter.version.json
+    // https://github.com/flutter/flutter-intellij/issues/8465
+    final VirtualFile versionFile = sdkHome.findFileByRelativePath("bin/cache/flutter.version.json");
+    if (versionFile != null && versionFile.exists() && !versionFile.isDirectory()) {
+      return readFromFile(versionFile);
+    }
+
+    // Fallback to the old location at <sdkHome>/version
     return readFromFile(sdkHome.findChild("version"));
   }
 
@@ -98,26 +107,39 @@ public class FlutterSdkVersion implements Comparable<FlutterSdkVersion> {
     if (file == null) {
       return new FlutterSdkVersion(null);
     }
-
-    final String versionString = readVersionString(file);
-    if (versionString == null) {
-      return new FlutterSdkVersion(null);
-    }
-
-    return new FlutterSdkVersion(versionString);
+    return new FlutterSdkVersion(readVersionString(file));
   }
 
-  private static String readVersionString(VirtualFile file) {
+  @Nullable
+  private static String readVersionString(@NotNull VirtualFile file) {
     try {
       final String data = new String(file.contentsToByteArray(), StandardCharsets.UTF_8);
-      for (String line : data.split("\n")) {
-        line = line.trim();
 
-        if (line.isEmpty() || line.startsWith("#")) {
-          continue;
+      // Check if the content is a JSON object.
+      // This tests to see if it is of the format provided by <sdkHome>/bin/cache/flutter.version.json files
+      // https://github.com/flutter/flutter-intellij/issues/8465
+      if (data.trim().startsWith("{")) {
+        try {
+          final Map<String, Object> json = new Gson().fromJson(data, new TypeToken<Map<String, Object>>() {
+          }.getType());
+          if (json != null && json.containsKey("frameworkVersion")) {
+            return (String)json.get("frameworkVersion");
+          }
         }
+        catch (com.google.gson.JsonSyntaxException e) {
+          return null;
+        }
+      }
+      else {
+        // Otherwise, handle the old plain text format.
+        for (String line : data.split("\n")) {
+          line = line.trim();
 
-        return line;
+          if (line.isEmpty() || line.startsWith("#")) {
+            continue;
+          }
+          return line;
+        }
       }
       return null;
     }
@@ -126,59 +148,37 @@ public class FlutterSdkVersion implements Comparable<FlutterSdkVersion> {
     }
   }
 
-  public boolean isMinRecommendedSupported() {
-    assert (MIN_SUPPORTED_SDK.version != null);
-    return version != null && version.compareTo(MIN_SUPPORTED_SDK.version) >= 0;
+  private boolean supportsVersion(@NotNull FlutterSdkVersion otherVersion) {
+    return this.compareTo(otherVersion) >= 0;
   }
 
-  public boolean isTrackWidgetCreationRecommended() {
-    assert (MIN_SAFE_TRACK_WIDGET_CREATION_SDK.version != null);
-    return version != null && version.compareTo(MIN_SAFE_TRACK_WIDGET_CREATION_SDK.version) >= 0;
+  public boolean canUsePropertyEditor() {
+    return supportsVersion(MIN_SUPPORTS_PROPERTY_EDITOR);
   }
 
-  public boolean isDartDefineSupported() {
-    //noinspection ConstantConditions
-    return version != null && version.compareTo(MIN_DART_DEFINE_SDK.version) >= 0;
+  public boolean canUseWidgetPreview() {
+    return supportsVersion(MIN_SUPPORTS_WIDGET_PREVIEW);
   }
 
-  public boolean isXcodeConfigOnlySupported() {
-    //noinspection ConstantConditions
-    return version != null && version.compareTo(MIN_XCODE_CONFIG_ONLY.version) >= 0;
+  public boolean canUseDevToolsMultiEmbed() {
+    return supportsVersion(MIN_SUPPORTS_DEVTOOLS_MULTI_EMBED);
   }
 
-  public boolean flutterCreateSupportsPlatforms() {
-    //noinspection ConstantConditions
-    return version != null && version.compareTo(MIN_CREATE_PLATFORMS_SDK.version) >= 0;
+  public boolean isSDKSupported() {
+    return supportsVersion(MIN_SDK_SUPPORTED);
   }
 
-  public boolean stableChannelSupportsPlatforms() {
-    //noinspection ConstantConditions
-    return version != null && version.compareTo(MAX_STABLE_NO_PLATFORMS_SDK.version) > 0;
-  }
-
-  public boolean flutterRunSupportsDevToolsUrl() {
-    return version != null && this.compareTo(MIN_PASS_DEVTOOLS_SDK) >= 0;
-  }
-
-  public boolean flutterTestSupportsMachineMode() {
-    return isMinRecommendedSupported();
-  }
-
-  public boolean flutterTestSupportsFiltering() {
-    return isMinRecommendedSupported();
-  }
-
-  public boolean isPubOutdatedSupported() {
-    //noinspection ConstantConditions
-    return version != null && version.compareTo(MIN_PUB_OUTDATED_SDK.version) >= 0;
+  public boolean isSDKAboutToSunset() {
+    return this.compareTo(MIN_SDK_SUPPORTED) >= 0 && this.compareTo(MIN_SDK_WITHOUT_SUNSET_WARNING) < 0;
   }
 
   public boolean isValid() {
     return version != null;
   }
 
+  @NotNull
   public String fullVersion() {
-    return version == null ? "unknown version" : version.toString();
+    return version == null ? UNKNOWN_VERSION : Objects.requireNonNull(version.toString());
   }
 
   /**
@@ -190,25 +190,28 @@ public class FlutterSdkVersion implements Comparable<FlutterSdkVersion> {
   }
 
   @Override
+  @NotNull
   public String toString() {
-    return version == null ? "unknown version" : version.toCompactString();
+    return version == null ? UNKNOWN_VERSION : Objects.requireNonNull(version.toCompactString());
   }
 
   @Override
   public int compareTo(@NotNull FlutterSdkVersion otherVersion) {
-    assert version != null;
-    assert otherVersion.version != null;
+    if (version == null) return -1;
+    if (otherVersion.version == null) return 1;
     final int standardComparisonResult = version.compareTo(otherVersion.version);
     if (standardComparisonResult != 0) {
       return standardComparisonResult;
     }
 
-    // Check for beta version strings if standard versions are equivalent.
+    // If standard versions are equivalent, check for beta version strings.
     if (betaVersion == null && otherVersion.betaVersion == null) {
       return 0;
-    } else if (betaVersion == null) {
+    }
+    else if (betaVersion == null) {
       return 1;
-    } else if (otherVersion.betaVersion == null) {
+    }
+    else if (otherVersion.betaVersion == null) {
       return -1;
     }
 
@@ -218,15 +221,19 @@ public class FlutterSdkVersion implements Comparable<FlutterSdkVersion> {
       return betaComparisonResult;
     }
 
-    // Check master version ints if both have master version ints and versions are otherwise equivalent.
-    // Otherwise, the version without a master version is further ahead.
-    if (masterVersion != 0 && otherVersion.masterVersion != 0) {
-      return Integer.compare(masterVersion, otherVersion.masterVersion);
-    } else if (masterVersion != 0) {
+    // If both have main version ints and the versions are otherwise equivalent,
+    // compare the main version ints.
+    // Otherwise, the version without a main version is further ahead.
+    if (mainVersion != 0 && otherVersion.mainVersion != 0) {
+      return Integer.compare(mainVersion, otherVersion.mainVersion);
+    }
+    else if (mainVersion != 0) {
       return -1;
-    } else if (otherVersion.masterVersion != 0) {
+    }
+    else if (otherVersion.mainVersion != 0) {
       return 1;
-    } else {
+    }
+    else {
       return 0;
     }
   }

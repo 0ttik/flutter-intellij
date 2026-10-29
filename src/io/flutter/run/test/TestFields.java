@@ -5,6 +5,7 @@
  */
 package io.flutter.run.test;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.RuntimeConfigurationError;
 import com.intellij.openapi.project.Project;
@@ -12,6 +13,7 @@ import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.execution.ParametersListUtil;
 import io.flutter.pub.PubRoot;
 import io.flutter.run.FlutterDevice;
@@ -42,6 +44,7 @@ public class TestFields {
 
   @Nullable
   private String additionalArgs;
+  private boolean useRegexp = false;
 
   private TestFields(@Nullable String testName, @Nullable String testFile, @Nullable String testDir, @Nullable String additionalArgs) {
     if (testFile == null && testDir == null) {
@@ -59,8 +62,18 @@ public class TestFields {
     this.additionalArgs = additionalArgs;
   }
 
+  public TestFields useRegexp(boolean useRegexp) {
+    this.useRegexp = useRegexp;
+    return this;
+  }
+
+  @VisibleForTesting
+  public boolean getUseRegexp() {
+    return useRegexp;
+  }
+
   public TestFields copy() {
-    return new TestFields(testName, testFile, testDir, additionalArgs);
+    return new TestFields(testName, testFile, testDir, additionalArgs).useRegexp(useRegexp);
   }
 
   /**
@@ -208,6 +221,7 @@ public class TestFields {
     ElementIO.addOption(elt, "testName", testName);
     ElementIO.addOption(elt, "testFile", testFile);
     ElementIO.addOption(elt, "testDir", testDir);
+    ElementIO.addOption(elt, "useRegexp", useRegexp ? "true" : "false");
     ElementIO.addOption(elt, "additionalArgs", additionalArgs);
   }
 
@@ -221,9 +235,10 @@ public class TestFields {
     final String testName = options.get("testName");
     final String testFile = options.get("testFile");
     final String testDir = options.get("testDir");
+    final String useRegexp = options.get("useRegexp");
     final String additionalArgs = options.get("additionalArgs");
     try {
-      return new TestFields(testName, testFile, testDir, additionalArgs);
+      return new TestFields(testName, testFile, testDir, additionalArgs).useRegexp("true".equals(useRegexp));
     }
     catch (IllegalArgumentException e) {
       throw new InvalidDataException(e.getMessage());
@@ -263,7 +278,7 @@ public class TestFields {
     }
 
     final String args = adjustArgs(root, fileOrDir, project);
-    return sdk.flutterTest(root, fileOrDir, testName, mode, args, getScope()).startProcess(project);
+    return sdk.flutterTest(root, fileOrDir, testName, mode, args, getScope(), useRegexp).startProcess(project);
   }
 
   @Nullable
@@ -285,7 +300,7 @@ public class TestFields {
     }
     args.add(0, "-d");
     args.add(1, device.deviceId());
-    return String.join(" ", args);
+    return StringUtil.join(args, " ");
   }
 
   private void checkSdk(@NotNull Project project) throws RuntimeConfigurationError {
@@ -302,9 +317,7 @@ public class TestFields {
       @Override
       public void checkRunnable(@NotNull TestFields fields, @NotNull Project project) throws RuntimeConfigurationError {
         final FlutterSdk sdk = FlutterSdk.getFlutterSdk(project);
-        if (sdk != null && !sdk.getVersion().flutterTestSupportsFiltering()) {
-          throw new RuntimeConfigurationError("Flutter SDK is too old to filter tests by name");
-        }
+        assert sdk != null;
         FILE.checkRunnable(fields, project);
       }
     },

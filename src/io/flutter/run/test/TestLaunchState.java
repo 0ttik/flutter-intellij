@@ -19,6 +19,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtil;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.jetbrains.lang.dart.ide.runner.DartConsoleFilter;
@@ -37,7 +38,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * A launcher that starts a process to run flutter tests, created from a run configuration.
  */
-class TestLaunchState extends CommandLineState {
+public class TestLaunchState extends CommandLineState {
   @NotNull
   private final TestConfig config;
 
@@ -82,9 +83,8 @@ class TestLaunchState extends CommandLineState {
 
     final FlutterSdk sdk = FlutterSdk.getFlutterSdk(env.getProject());
     assert (sdk != null);
-    final boolean testConsoleEnabled = sdk.getVersion().flutterTestSupportsMachineMode();
 
-    final TestLaunchState launcher = new TestLaunchState(env, config, fileOrDir, pubRoot, testConsoleEnabled);
+    final TestLaunchState launcher = new TestLaunchState(env, config, fileOrDir, pubRoot, true);
     DaemonConsoleView.install(launcher, env, pubRoot.getRoot());
     return launcher;
   }
@@ -137,7 +137,7 @@ class TestLaunchState extends CommandLineState {
     if (root != null) {
       return root.getPath();
     }
-    final VirtualFile baseDir = config.getProject().getBaseDir();
+    final VirtualFile baseDir = ProjectUtil.guessProjectDir(config.getProject());
     return baseDir == null ? null : baseDir.getPath();
   }
 

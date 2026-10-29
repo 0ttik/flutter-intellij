@@ -10,37 +10,32 @@ import com.intellij.coverage.CoverageRunner;
 import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.execution.configurations.coverage.CoverageEnabledConfiguration;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.GuiUtils;
-import io.flutter.FlutterBundle;
+import com.intellij.util.ModalityUiUtil;
 import io.flutter.pub.PubRoot;
-import io.flutter.pub.PubRoots;
+import io.flutter.run.test.TestConfig;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.List;
-
 public class FlutterCoverageEnabledConfiguration extends CoverageEnabledConfiguration {
-  private static final Logger LOG = Logger.getInstance(FlutterCoverageEnabledConfiguration.class.getName());
 
   public FlutterCoverageEnabledConfiguration(@NotNull RunConfigurationBase<?> configuration) {
     super(configuration);
     super.setCoverageRunner(CoverageRunner.getInstance(FlutterCoverageRunner.class));
     createCoverageFile();
-    GuiUtils.invokeLaterIfNeeded(
-      () -> setCurrentCoverageSuite(CoverageDataManager.getInstance(configuration.getProject()).addCoverageSuite(this)),
-      ModalityState.any());
+    ModalityUiUtil.invokeLaterIfNeeded(
+      ModalityState.any(),
+      () -> setCurrentCoverageSuite(CoverageDataManager.getInstance(configuration.getProject()).addCoverageSuite(this)));
   }
 
   @Override
   protected String createCoverageFile() {
     if (myCoverageFilePath == null) {
-      final List<PubRoot> roots = PubRoots.forProject(getConfiguration().getProject());
-      if (roots.isEmpty()) {
-        throw new RuntimeException(FlutterBundle.message("project.root.not.found"));
+      if (!(getConfiguration() instanceof TestConfig)) {
+        return "";
       }
-      final VirtualFile root = roots.get(0).getRoot();
+      VirtualFile file = ((TestConfig)getConfiguration()).getFields().getFileOrDir();
+      final VirtualFile root = PubRoot.forFile(file).getRoot();
       myCoverageFilePath = root.getPath() + "/coverage/lcov.info";
     }
     return myCoverageFilePath;

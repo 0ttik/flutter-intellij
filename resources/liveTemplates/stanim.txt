@@ -1,8 +1,8 @@
 class $NAME$ extends StatefulWidget {
-  const $NAME$({Key? key}) : super(key: key);
+  const $NAME$({super.key});
 
   @override
-  _$NAME$State createState() => _$NAME$State();
+  State<$NAME$> createState() => _$NAME$State();
 }
 
 class _$NAME$State extends State<$NAME$> with SingleTickerProviderStateMixin {
@@ -22,6 +22,6 @@ class _$NAME$State extends State<$NAME$> with SingleTickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Container($END$);
+    return const Placeholder($END$);
   }
 }

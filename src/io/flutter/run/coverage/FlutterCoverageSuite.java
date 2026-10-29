@@ -11,7 +11,6 @@ import com.intellij.coverage.CoverageFileProvider;
 import com.intellij.coverage.CoverageRunner;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 public class FlutterCoverageSuite extends BaseCoverageSuite {
 
@@ -35,5 +34,9 @@ public class FlutterCoverageSuite extends BaseCoverageSuite {
   @Override
   public @NotNull CoverageEngine getCoverageEngine() {
     return coverageEngine;
+  }
+
+  @Override
+  public void deleteCachedCoverageData() {
   }
 }

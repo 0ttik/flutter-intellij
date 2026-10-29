@@ -1,8 +1,6 @@
 // Copyright 2017 The Chromium Authors. All rights reserved. Use of this source
 // code is governed by a BSD-style license that can be found in the LICENSE file.
 
-// @dart = 2.10
-
 import 'dart:async';
 import 'dart:io';
 
@@ -12,10 +10,12 @@ import 'build_spec.dart';
 import 'globals.dart';
 import 'util.dart';
 
-class BuildCommandRunner extends CommandRunner {
+class BuildCommandRunner extends CommandRunner<int> {
   BuildCommandRunner()
-      : super('plugin',
-            'A script to build, test, and deploy the Flutter IntelliJ plugin.') {
+      : super(
+          'plugin',
+          'A script to build, test, and deploy the Flutter IntelliJ plugin.',
+        ) {
     argParser.addOption(
       'release',
       abbr: 'r',
@@ -30,69 +30,31 @@ class BuildCommandRunner extends CommandRunner {
     );
   }
 
-  // Use this to compile plugin sources using ant to get forms processed.
-  Future<int> javac2(BuildSpec spec) async {
-    var args = '''
--f tool/plugin/compile.xml
--Didea.product=${spec.ideaProduct}
--Didea.version=${spec.ideaVersion}
--Dbasedir=$rootPath
-compile
-''';
-    writeJxBrowserKeyToFile();
-    try {
-      return await exec('ant', args.split(RegExp(r'\s')));
-    } on ProcessException catch (x) {
-      if (x.message == 'No such file or directory') {
-        log(
-            '\nThe build command requires ant to be installed. '
-            '\nPlease ensure ant is on your \$PATH.',
-            indent: false);
-        exit(x.errorCode);
-      } else {
-        rethrow;
-      }
-    }
-  }
-
-  void writeJxBrowserKeyToFile() {
-    final jxBrowserKey =
-        readTokenFromKeystore('FLUTTER_KEYSTORE_JXBROWSER_KEY_NAME');
-    final propertiesFile =
-        File("$rootPath/resources/jxbrowser/jxbrowser.properties");
-    if (jxBrowserKey.isNotEmpty) {
-      final contents = '''
-jxbrowser.license.key=$jxBrowserKey
-''';
-      propertiesFile.writeAsStringSync(contents);
-    }
-  }
-
-  Future<int> buildPlugin(BuildSpec spec, String version) async {
-    writeJxBrowserKeyToFile();
-    return await runGradleCommand(['buildPlugin'], spec, version, 'false');
-  }
-
   Future<int> runGradleCommand(
     List<String> command,
     BuildSpec spec,
     String version,
     String testing,
   ) async {
-    var javaVersion = ['4.1'].contains(spec.version) ? '1.8' : '11';
     final contents = '''
-name = "flutter-intellij"
-org.gradle.parallel=true
-org.gradle.jvmargs=-Xms128m -Xmx1024m -XX:+CMSClassUnloadingEnabled
-javaVersion=$javaVersion
-dartVersion=${spec.dartPluginVersion}
-flutterPluginVersion=$version
-ide=${spec.ideaProduct}
-testing=$testing
+name = "flutter-intellij
 buildSpec=${spec.version}
+flutterPluginVersion=$version
+ideaProduct=${spec.ideaProduct}
+ideaVersion=${spec.ideaVersion}
+baseVersion=${spec.baseVersion}
+dartPluginVersion=${spec.dartPluginVersion}
+androidPluginVersion=${spec.androidPluginVersion}
+sinceBuild=${spec.sinceBuild}
+testing=$testing
+javaVersion=${spec.javaVersion}
+kotlin.stdlib.default.dependency=false
+org.gradle.parallel=true
+org.gradle.jvmargs=-Xms1024m -Xmx4048m
 ''';
     final propertiesFile = File("$rootPath/gradle.properties");
-    final source = propertiesFile.readAsStringSync();
+    final source =
+        propertiesFile.existsSync() ? propertiesFile.readAsStringSync() : null;
     propertiesFile.writeAsStringSync(contents);
     int result;
     // Using the Gradle daemon causes a strange problem.
@@ -113,7 +75,7 @@ buildSpec=${spec.version}
         }
       }
     } finally {
-      propertiesFile.writeAsStringSync(source);
+      if (source != null) propertiesFile.writeAsStringSync(source);
     }
     return result;
   }

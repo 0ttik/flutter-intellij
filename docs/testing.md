@@ -1,5 +1,8 @@
 # Plugin Smoke Testing
 
+> [!WARNING]
+> **Outdated Documentation**: This smoke testing document contains legacy manual test procedures. For up-to-date release verification instructions and the active manual testing checklist, refer to the [`release-plugin` skill](../.agents/skills/release-plugin/SKILL.md#5-manual-testing-checklist).
+
 Manual tests to execute before plugin releases.
 
 ## Setup
@@ -19,11 +22,12 @@ Pre-reqs: Run through the [flutter setup](https://flutter.dev/docs/get-started/i
 
 ## Project Creation
 
-Validate basic project creation. Find your other.xml and remove FLUTTER_SDK_KNOWN_PATHS and remove `flutter` from your PATH.
+Validate basic project creation. Find your other.xml (~/Library/Application Support/Google/<IDE>/options/other.xml) and remove FLUTTER_SDK_KNOWN_PATHS and remove `flutter` from your PATH.
 This might require a reboot. Start from the Welcome screen at least once.
 
 * Create a **simple project** (`File > New > Project...`, pick `Flutter`; on Android Studio, `File > New > New Flutter Project...`).
   * (select an `Application` type project)
+  * use a project name that contains a space -- project location must be lowercase_with_underscores
 * Confirm that:
   * Project contents are created.
     * Verify that a run configuration (`main.dart`) is enabled in the run/debug selector.
@@ -170,7 +174,7 @@ Verify that projects without Flutter project metadata open properly and are give
 Verify installation and configuration in a fresh IDEA installation.
 
 * Follow the instructions to
-  [simulate a fresh installation](https://github.com/flutter/flutter-intellij/wiki/Development#simulating-a-fresh-install).
+  [simulate a fresh installation](Development.md#simulating-a-fresh-install).
 * (If not running in a "runtime workbench", [install the plugins](https://flutter.dev/docs/development/packages-and-plugins/using-packages).)
 * Open "Languages & Frameworks>Flutter" in Preferences and verify that there is
   no Flutter SDK set.
@@ -186,9 +190,9 @@ directory once and put it outside the app another time.
 
 ### Create an Android app
 
-Start Android Studio and use the File > New > New Project menu to fire 
-up the new project wizard. Choose the template that includes a Basic
-Activity. One the next page, use Kotlin and minimum API level 16.
+Start Android Studio and use the File > New > New Project menu to open 
+the new project wizard. Choose the template that includes a Basic
+Activity. On the next page, use Kotlin and minimum API level 16.
 Let the system stabilize (Gradle sync).
 
 Switch the Project view to

@@ -9,10 +9,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.intellij.concurrency.JobScheduler;
 import com.intellij.execution.ExecutionException;
-import com.intellij.ide.ActivityTracker;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
@@ -20,7 +19,7 @@ import com.intellij.openapi.roots.ex.ProjectRootManagerEx;
 import com.intellij.openapi.util.Disposer;
 import io.flutter.FlutterMessages;
 import io.flutter.FlutterUtils;
-import io.flutter.bazel.WorkspaceCache;
+import io.flutter.logging.PluginLogger;
 import io.flutter.run.FlutterDevice;
 import io.flutter.sdk.AndroidEmulatorManager;
 import io.flutter.sdk.FlutterSdkManager;
@@ -28,10 +27,11 @@ import io.flutter.utils.Refreshable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
+import javax.swing.SwingUtilities;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Provides the list of available devices (mobile phones or emulators) that appears in the dropdown menu.
  */
-public class DeviceService {
+public class DeviceService implements Disposable {
   @NotNull private final Project project;
 
   /**
@@ -57,13 +57,13 @@ public class DeviceService {
 
   @NotNull
   public static DeviceService getInstance(@NotNull final Project project) {
-    return ServiceManager.getService(project, DeviceService.class);
+    return Objects.requireNonNull(project.getService(DeviceService.class));
   }
 
   private DeviceService(@NotNull final Project project) {
     this.project = project;
 
-    deviceDaemon.setDisposeParent(project);
+    deviceDaemon.setDisposeParent(this);
     deviceDaemon.subscribe(this::refreshDeviceSelection);
     refreshDeviceDaemon();
 
@@ -79,14 +79,16 @@ public class DeviceService {
         refreshDeviceDaemon();
       }
     };
-    FlutterSdkManager.getInstance(project).addListener(sdkListener);
-    Disposer.register(project, () -> FlutterSdkManager.getInstance(project).removeListener(sdkListener));
-
-    // Watch for Bazel workspace changes.
-    WorkspaceCache.getInstance(project).subscribe(this::refreshDeviceDaemon);
+    final FlutterSdkManager sdkManager = FlutterSdkManager.getInstance(project);
+    sdkManager.addListener(sdkListener);
+    Disposer.register(this, () -> sdkManager.removeListener(sdkListener));
 
     // Watch for Java SDK changes. (Used to get the value of ANDROID_HOME.)
     ProjectRootManagerEx.getInstanceEx(project).addProjectJdkListener(this::refreshDeviceDaemon);
+  }
+
+  @Override
+  public void dispose() {
   }
 
   /**
@@ -96,6 +98,14 @@ public class DeviceService {
     listeners.updateAndGet((old) -> {
       final List<Runnable> changed = new ArrayList<>(old);
       changed.add(callback);
+      return ImmutableSet.copyOf(changed);
+    });
+  }
+
+  public void removeListener(@NotNull Runnable callback) {
+    listeners.updateAndGet((old) -> {
+      final List<Runnable> changed = new ArrayList<>(old);
+      changed.remove(callback);
       return ImmutableSet.copyOf(changed);
     });
   }
@@ -123,7 +133,7 @@ public class DeviceService {
   /**
    * Returns the currently connected devices, sorted by device name.
    */
-  public Collection<FlutterDevice> getConnectedDevices() {
+  public @NotNull Collection<FlutterDevice> getConnectedDevices() {
     return deviceSelection.get().getDevices();
   }
 
@@ -146,7 +156,11 @@ public class DeviceService {
     deviceSelection.updateAndGet((old) -> {
       final DeviceDaemon daemon = deviceDaemon.getNow();
       final List<FlutterDevice> newDevices = daemon == null ? ImmutableList.of() : daemon.getDevices();
-      return old.withDevices(newDevices);
+      FlutterDevice oldSelection = old.getSelection();
+      String selection = oldSelection != null
+                         ? oldSelection.deviceId()
+                         : newDevices.isEmpty() ? null : newDevices.getFirst().deviceId();
+      return old.withDevices(newDevices).withSelection(selection);
     });
     fireChangeEvent();
   }
@@ -159,7 +173,7 @@ public class DeviceService {
           listener.run();
         }
         catch (Exception e) {
-          FlutterUtils.warn(LOG, "DeviceDaemon listener threw an exception", e);
+          FlutterUtils.warn(LOG, "DeviceDaemon listener threw an exception", e, true);
         }
       }
     });
@@ -176,7 +190,6 @@ public class DeviceService {
       if (project.isDisposed()) return;
       deviceDaemon.refresh(this::chooseNextDaemon);
       refreshInProgress = false;
-      ActivityTracker.getInstance().inc();
     });
   }
 
@@ -244,9 +257,9 @@ public class DeviceService {
       return nextCommand.start(request::isCancelled, this::refreshDeviceSelection, this::daemonStopped);
     }
     catch (ExecutionException executionException) {
-      LOG.info("Error starting up the Flutter device daemon", executionException);
+      FlutterUtils.info(LOG, "Error starting up the Flutter device daemon", executionException, true);
 
-      // Couldn't start a new instance; don't shut down down any previous instance.
+      // Couldn't start a new instance; don't shut down any previous instance.
       return previous;
     }
   }
@@ -270,5 +283,5 @@ public class DeviceService {
 
   public enum State {INACTIVE, LOADING, READY}
 
-  private static final Logger LOG = Logger.getInstance(DeviceService.class);
+  private static final @NotNull Logger LOG = PluginLogger.createLogger(DeviceService.class);
 }

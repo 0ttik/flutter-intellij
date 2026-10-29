@@ -6,11 +6,10 @@
 package io.flutter;
 
 import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationListener;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.ui.messages.MessagesService;
 import icons.FlutterIcons;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
@@ -18,12 +17,12 @@ import org.jetbrains.annotations.Nullable;
 
 public class FlutterMessages {
   public static final String FLUTTER_NOTIFICATION_GROUP_ID = "Flutter Messages";
+  public static final String FLUTTER_LOGGING_NOTIFICATION_GROUP_ID = "Flutter Notifications";
 
   private FlutterMessages() {
   }
 
-  public static void showError(String title, String message, @Nullable Project project) {
-    // TODO: Make the project parameter not nullable.
+  public static void showError(@NotNull String title, @NotNull String message, @Nullable Project project) {
     Notifications.Bus.notify(
       new Notification(FLUTTER_NOTIFICATION_GROUP_ID,
                        title,
@@ -31,18 +30,16 @@ public class FlutterMessages {
                        NotificationType.ERROR), project);
   }
 
-  public static void showWarning(String title, String message, @Nullable Project project) {
-    // TODO: Make the project parameter not nullable.
+  public static void showWarning(@NotNull String title, @NotNull String message, @Nullable Project project) {
     Notifications.Bus.notify(
       new Notification(
         FLUTTER_NOTIFICATION_GROUP_ID,
         title,
         message,
-        NotificationType.WARNING, NotificationListener.URL_OPENING_LISTENER), project);
+        NotificationType.WARNING), project);
   }
 
-  public static void showInfo(String title, String message, @Nullable Project project) {
-    // TODO: Make the project parameter not nullable.
+  public static void showInfo(@NotNull String title, @NotNull String message, @Nullable Project project) {
     final Notification notification = new Notification(
       FLUTTER_NOTIFICATION_GROUP_ID,
       title,
@@ -57,8 +54,9 @@ public class FlutterMessages {
                                @NotNull @Nls String title,
                                @NotNull String[] options,
                                int defaultOptionIndex) {
-    return Messages.showIdeaMessageDialog(project, message, title,
-                                          options, defaultOptionIndex,
-                                          FlutterIcons.Flutter_2x, null);
+    return MessagesService.getInstance()
+      .showMessageDialog(project, null, message, title,
+                         options, defaultOptionIndex, -1,
+                         FlutterIcons.Flutter_2x, null, true, null);
   }
 }

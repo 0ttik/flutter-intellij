@@ -15,38 +15,27 @@ import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.PropertiesComponent;
-import com.intellij.notification.Notification;
-import com.intellij.notification.NotificationDisplayType;
-import com.intellij.notification.NotificationGroup;
-import com.intellij.notification.NotificationType;
-import com.intellij.notification.Notifications;
+import com.intellij.notification.*;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.concurrency.QueueProcessor;
-import io.flutter.FlutterInitializer;
+import io.flutter.FlutterUtils;
 import io.flutter.devtools.DevToolsUtils;
-import io.flutter.inspector.DiagnosticLevel;
-import io.flutter.inspector.DiagnosticsNode;
-import io.flutter.inspector.DiagnosticsTreeStyle;
-import io.flutter.inspector.InspectorService;
-import io.flutter.jxbrowser.EmbeddedBrowser;
 import io.flutter.jxbrowser.JxBrowserManager;
-import io.flutter.jxbrowser.JxBrowserStatus;
 import io.flutter.run.daemon.FlutterApp;
-import io.flutter.sdk.FlutterSdk;
 import io.flutter.settings.FlutterSettings;
 import io.flutter.utils.JsonUtils;
-import io.flutter.view.FlutterView;
+import io.flutter.view.EmbeddedBrowser;
+import io.flutter.view.InspectorView;
 import io.flutter.vmService.VmServiceConsumers;
 import org.dartlang.vm.service.VmService;
 import org.dartlang.vm.service.consumer.GetObjectConsumer;
@@ -67,7 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * console.
  */
 public class FlutterConsoleLogManager {
-  private static final Logger LOG = Logger.getInstance(FlutterConsoleLogManager.class);
+  private static final @NotNull Logger LOG = PluginLogger.createLogger(FlutterConsoleLogManager.class);
 
   private static final String consolePreferencesSetKey = "io.flutter.console.preferencesSet";
   private static final String DEEP_LINK_GROUP_ID = "deeplink";
@@ -101,8 +90,6 @@ public class FlutterConsoleLogManager {
 
   private int frameErrorCount = 0;
 
-  private CompletableFuture<InspectorService.ObjectGroup> objectGroup;
-
   public FlutterConsoleLogManager(@NotNull ConsoleView console, @NotNull FlutterApp app) {
     this.console = console;
     this.app = app;
@@ -134,51 +121,11 @@ public class FlutterConsoleLogManager {
     }
   }
 
-  /**
-   * This method is used to delay construction of the InspectorService ObjectGroup instance until its first used.
-   * <p>
-   * This ensures that the app's VMService field has been populated.
-   */
-  @Nullable
-  private CompletableFuture<InspectorService.ObjectGroup> getCreateInspectorGroup() {
-    if (objectGroup == null) {
-      if (app.getFlutterDebugProcess() == null || app.getVmService() == null) {
-        return null;
-      }
-
-      // TODO(devoncarew): This creates a new InspectorService but may not dispose of it.
-      objectGroup = InspectorService.createGroup(app, app.getFlutterDebugProcess(), app.getVmService(), "console-group");
-      objectGroup.whenCompleteAsync((group, error) -> {
-        if (group != null) {
-          Disposer.register(app, group.getInspectorService());
-        }
-      });
-    }
-
-    return objectGroup;
-  }
-
   public void handleFlutterErrorEvent(@NotNull Event event) {
-    final CompletableFuture<InspectorService.ObjectGroup> objectGroup = getCreateInspectorGroup();
-    if (objectGroup == null) {
-      return;
-    }
-
     try {
       final ExtensionData extensionData = event.getExtensionData();
       final JsonObject jsonObject = extensionData.getJson().getAsJsonObject();
-      final DiagnosticsNode diagnosticsNode = new DiagnosticsNode(jsonObject, objectGroup, app, false, null);
-
-      // Send analytics for the diagnosticsNode.
-      if (isFirstErrorForFrame()) {
-        final String errorId = FlutterErrorHelper.getAnalyticsId(diagnosticsNode);
-        if (errorId != null) {
-          FlutterInitializer.getAnalytics().sendEvent(
-            "flutter-error", errorId,
-            // Note: this can be null from tests.
-            app.getProject() == null ? null : FlutterSdk.getFlutterSdk(app.getProject()));
-        }
-      }
+      final DiagnosticsNode diagnosticsNode = new DiagnosticsNode(jsonObject, app, false, null);
 
       if (FlutterSettings.getInstance().isShowStructuredErrors()) {
         queueLength.incrementAndGet();
@@ -188,7 +135,11 @@ public class FlutterConsoleLogManager {
             processFlutterErrorEvent(diagnosticsNode);
           }
           catch (Throwable t) {
-            LOG.warn(t);
+            if (FlutterSettings.getInstance().isVerboseLogging()) {
+              LOG.warn(t);
+            } else {
+              LOG.warn("Error processing FlutterErrorEvent: " + t.getMessage());
+            }
           }
           finally {
             queueLength.decrementAndGet();
@@ -201,7 +152,11 @@ public class FlutterConsoleLogManager {
       }
     }
     catch (Throwable t) {
-      LOG.warn(t);
+      if (FlutterSettings.getInstance().isFilePathLoggingEnabled()) {
+        LOG.warn(t);
+      } else {
+        LOG.warn("Error handling FlutterErrorEvent: " + t.getMessage());
+      }
     }
   }
 
@@ -219,7 +174,11 @@ public class FlutterConsoleLogManager {
         }
       }
       catch (InterruptedException e) {
-        e.printStackTrace();
+        if (FlutterSettings.getInstance().isVerboseLogging()) {
+          LOG.error(e);
+        } else {
+          LOG.error("Exception when flushing FlutterErrorQueue: " + e.getMessage());
+        }
       }
     }
   }
@@ -233,7 +192,7 @@ public class FlutterConsoleLogManager {
    * Pretty print the error using the available console syling attributes.
    */
   private void processFlutterErrorEvent(@NotNull DiagnosticsNode diagnosticsNode) {
-    final String description = " " + diagnosticsNode.toString() + " ";
+    final String description = " " + diagnosticsNode + " ";
 
     final boolean terseError = !isFirstErrorForFrame() && !FlutterSettings.getInstance().isIncludeAllStackTraces();
 
@@ -273,9 +232,9 @@ public class FlutterConsoleLogManager {
 
         if (StringUtil.equals("ErrorSummary", property.getType())) {
           errorSummary = property.getDescription();
-        } else if (StringUtil.equals("DevToolsDeepLinkProperty", property.getType()) &&
-                FlutterSettings.getInstance().isEnableEmbeddedBrowsers() &&
-                JxBrowserManager.getInstance().getStatus().equals(JxBrowserStatus.INSTALLED)) {
+        }
+        else if (StringUtil.equals("DevToolsDeepLinkProperty", property.getType()) &&
+                 FlutterUtils.embeddedBrowserAvailable(JxBrowserManager.getInstance().getStatus())) {
           showDeepLinkNotification(property, errorSummary);
           continue;
         }
@@ -411,15 +370,10 @@ public class FlutterConsoleLogManager {
     }
   }
 
-  private void showDeepLinkNotification(DiagnosticsNode property, String errorSummary) {
-    // TODO(helin24): We can register a notification group in plugin.xml for 2020.3
-    // (see https://plugins.jetbrains.com/docs/intellij/notifications.html?from=jetbrains.org#top-level-notifications)
-    final NotificationGroup notificationGroup = new NotificationGroup(DEEP_LINK_GROUP_ID, NotificationDisplayType.STICKY_BALLOON);
-    final Notification notification = new Notification(
-      DEEP_LINK_GROUP_ID,
-      "",
-      errorSummary,
-      NotificationType.INFORMATION);
+  private void showDeepLinkNotification(DiagnosticsNode property, @NotNull String errorSummary) {
+    NotificationGroup group = NotificationGroupManager.getInstance().getNotificationGroup(DEEP_LINK_GROUP_ID);
+    assert group != null;
+    Notification notification = group.createNotification(errorSummary, NotificationType.INFORMATION);
     notification.setIcon(AllIcons.General.BalloonWarning);
     notification.addAction(new AnAction("Inspect Widget") {
       @Override
@@ -430,7 +384,7 @@ public class FlutterConsoleLogManager {
           return;
         }
 
-        final ToolWindow toolWindow = toolWindowManager.getToolWindow(FlutterView.TOOL_WINDOW_ID);
+        final ToolWindow toolWindow = toolWindowManager.getToolWindow(InspectorView.TOOL_WINDOW_ID);
         if (toolWindow != null && !toolWindow.isVisible()) {
           toolWindow.show();
         }
@@ -439,20 +393,19 @@ public class FlutterConsoleLogManager {
 
         Project project = app.getProject();
         if (!project.isDisposed()) {
-          EmbeddedBrowser.getInstance(project).updatePanelToWidget(widgetId);
+          final EmbeddedBrowser browser = FlutterUtils.embeddedBrowser(project);
+          if (browser != null && widgetId != null) {
+            browser.updatePanelToWidget(widgetId);
+          }
         }
 
         notification.expire();
-
-        FlutterInitializer.getAnalytics().sendEvent(
-          "deep-link-clicked",
-          errorSummary.contains("RenderFlex overflowed") ? "overflow" : "unknown",
-          FlutterSdk.getFlutterSdk(app.getProject())
-        );
       }
     });
     Notifications.Bus.notify(notification, app.getProject());
-    Executors.newSingleThreadScheduledExecutor().schedule(notification::expire, 25, TimeUnit.SECONDS);
+    try (var executor = Executors.newSingleThreadScheduledExecutor()) {
+      executor.schedule(notification::expire, 25, TimeUnit.SECONDS);
+    }
   }
 
   private String getChildIndent(String indent, DiagnosticsNode property) {
@@ -470,21 +423,21 @@ public class FlutterConsoleLogManager {
         processLoggingEvent(event);
       }
       catch (Throwable t) {
-        LOG.warn(t);
+        if (FlutterSettings.getInstance().isVerboseLogging()) {
+          LOG.warn(t);
+        } else {
+          LOG.warn("Error processing LoggingEvent: " + t.getMessage());
+        }
       }
     });
   }
 
   private ConsoleViewContentType getContentTypeFor(DiagnosticLevel level) {
-    switch (level) {
-      case error:
-      case summary:
-        return ERROR_CONTENT_TYPE;
-      case hint:
-        return NORMAL_CONTENT_TYPE;
-      default:
-        return SUBTLE_CONTENT_TYPE;
-    }
+    return switch (level) {
+      case error, summary -> ERROR_CONTENT_TYPE;
+      case hint -> NORMAL_CONTENT_TYPE;
+      default -> SUBTLE_CONTENT_TYPE;
+    };
   }
 
   @VisibleForTesting
@@ -582,8 +535,8 @@ public class FlutterConsoleLogManager {
     return ref.getValueAsString() + "...";
   }
 
-  private String getFullStringValue(@NotNull VmService service, String isolateId, @Nullable InstanceRef ref) {
-    if (ref == null) return null;
+  private @Nullable String getFullStringValue(@NotNull VmService service, @Nullable String isolateId, @Nullable InstanceRef ref) {
+    if (ref == null || isolateId == null) return null;
 
     if (!ref.getValueAsStringIsTruncated()) {
       return ref.getValueAsString();
@@ -619,10 +572,12 @@ public class FlutterConsoleLogManager {
     });
 
     try {
+      // The return can be safely ignored. An unset result will just return 0.
+      //noinspection ResultOfMethodCallIgnored
       latch.await(1, TimeUnit.SECONDS);
     }
     catch (InterruptedException e) {
-      return null;
+      // Fall through to returning an empty result.
     }
 
     return result[0];
