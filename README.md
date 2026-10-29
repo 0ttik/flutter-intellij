@@ -79,7 +79,37 @@ These are the versions of Flutter SDK that current and previous Flutter plugins 
 | v3.10.0 to v3.10.2  | 85.3.2 and earlier     |
 | v3.10.3 to v3.10.6  | 86.0.2 and earlier     |
 | v3.13.0 to v3.13.9  | 88.1.0 and earlier     |
-| v3.16.0 and above   | Currently supported    |
+| v3.16.0 to v3.19.3  | 90.0.0 and earlier     |
+| v3.19.4 to v3.22.1  | 97.0.0 and earlier     |
+| v3.22.2 and above   | Currently supported    |
+
+The minimum supported version is `MIN_SDK_SUPPORTED` in
+[`FlutterSdkVersion.java`](src/io/flutter/sdk/FlutterSdkVersion.java). For SDKs older than
+`MIN_SDK_WITHOUT_SUNSET_WARNING` (currently v3.27.4), the plugin warns that support will end soon.
 
 Here is more information on the Flutter plugin's support for Flutter
 SDKs: https://docs.flutter.dev/tools/sdk#sdk-support-for-flutter-developer-tools.
+
+## AI Coding Agent Skills
+
+This repository comes with custom configuration and automation skills for AI coding agents (such as Gemini Code Assist / Antigravity).
+
+These skills are located in the [.agents/skills/](.agents/skills/) directory. They are automatically discovered and loaded by agentic workflows when they analyze the workspace.
+
+### Available Workspace Skills:
+* **[Add Missing Unit Test](.agents/skills/add-missing-unit-test/SKILL.md):** Add a new unit test for a class that currently lacks one or add a new test case to an existing test file, verifying improvement with Kover.
+* **[Accessibility (A11y) Audit](.agents/skills/audit-accessibility/SKILL.md):** Ensure the plugin's custom UI components are accessible to users with screen readers and other assistive technologies.
+* **[Dependency & Library Audit](.agents/skills/audit-dependencies/SKILL.md):** Optimize plugin size and security by removing unused dependencies and updating outdated libraries.
+* **[UI Thread Safety Audit](.agents/skills/audit-ui-thread-safety/SKILL.md):** Prevent UI freezes and ensure a responsive user experience by validating threading rules and migrating blocking calls off the Event Dispatch Thread (EDT).
+* **[Code Inspection Cleanup](.agents/skills/cleanup-code-inspections/SKILL.md):** Reduce technical debt and improve code quality by systematically resolving static analysis warnings.
+* **[Unused Asset Cleanup](.agents/skills/cleanup-unused-assets/SKILL.md):** Reduce plugin size by scanning `resources/icons` and removing unreferenced assets.
+* **[Code Review](.agents/skills/code-review/SKILL.md):** Performs a pedantic, multi-perspective code review (covering logic, correctness, resource safety, design, and styleguide compliance) on your uncommitted changes.
+* **[Load Repository Context](.agents/skills/load-repo-context/SKILL.md):** Primes understanding of repository architecture by navigating hierarchical ABOUT.md manifests.
+* **[Migrate IntelliJ Util](.agents/skills/migrate-intellij-util/SKILL.md):** Optimize memory usage, consistency, and performance by migrating standard Java/Kotlin classes to IntelliJ's specialized `com.intellij.util` implementations.
+* **[Remove Platform Version](.agents/skills/remove-platform-version/SKILL.md):** Remove support for an older IntelliJ Platform / Android Studio version from the project and clean up obsolete code, baselines, and CI configurations.
+* **[Release Plugin](.agents/skills/release-plugin/SKILL.md):** Prepare and execute a new release for the flutter-intellij plugin, including updating dependencies, compatibility bounds, changelogs, and verification.
+* **[Resolve Verification Issues](.agents/skills/resolve-verification-issues/SKILL.md):** Eliminate plugin verification warnings and errors identified by `./gradlew verifyPlugin`.
+* **[Verify EAP Compatibility](.agents/skills/verify-eap-compatibility/SKILL.md):** Ensure the plugin remains compatible with the latest IntelliJ Platform releases and EAP (Early Access Program) builds.
+
+### How to use:
+Tell your AI assistant to run the desired skill (e.g. by typing `/code-review` or asking *"Run the code-review skill on my changes"*). The agent will automatically find, load, and follow the instructions in the corresponding `SKILL.md` file.

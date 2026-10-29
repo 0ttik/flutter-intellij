@@ -3,10 +3,109 @@
 ### Added
 
 ### Changed
+- Migrated test detection from `FlutterOutline` to Dart PSI. (#9159)
+- Avoiding `--no-color` on Flutter commands run from the plugin, and keeping their console command lines folded. (#9161)
+
+### Removed
+- Legacy Dart Analysis Server URI mapping during debugging. (#9149)
+- Support for Flutter SDK versions older than 3.22.2.
+
+### Fixed
+- Empty Flutter SDK dropdown in the New Project wizard when switching to Flutter after starting the wizard on another language. (#9106)
+- Process handlers of terminated apps are no longer kept until the project closes. (#9169)
+
+## 97.0.0
+
+### Added
+
+### Changed
 
 ### Removed
 
 ### Fixed
+- Opening the iOS Simulator with Xcode 27, which replaced `Simulator.app` with `DeviceHub.app`. (#9126)
+- `IndexOutOfBoundsException` in `FlutterColorProvider`. (#9091)
+
+## 96.0.0
+
+### Added
+
+### Changed
+
+### Removed
+
+### Fixed
+- Prevent untrusted project Git error during project creation when selecting a Flutter SDK. (#9099)
+- Issue with saving the Flutter SDK path in Settings. (#9074)
+
+## 95.0.0
+
+### Added
+
+### Changed
+- Removed upper build constraint (`untilBuild`) for open-ended platform compatibility. (#9063)
+
+### Removed
+- Support for platform version 2025.1.
+- Bazel run and test configurations.
+
+### Fixed
+- IDE freeze when applying Flutter SDK path changes in Settings. (#9058)
+
+## 94.0.0
+
+### Added
+- Support for IntelliJ platform version 2026.2. (#9022)
+
+### Changed
+
+### Removed
+
+### Fixed
+
+## 93.0.0
+
+### Added
+
+- Missing platforms and targets to Build menu. (#8875)
+- Explicit text labels to Flutter device selector. (#8972)
+
+### Changed
+
+### Removed
+
+### Fixed
+- Restored device labels on split-debugger run tabs in IntelliJ IDEA 2025.3+. (#8908)
+- Debug window opening for run app in 2026.1. (#8985)
+
+## 92.0.0
+
+### Added
+
+- Option to specify the pub root module for Flutter Widget Previewer. (#8888)
+
+### Changed
+
+### Removed
+
+### Fixed
+- Silent failure when opening Flutter projects without `.idea` directory in IntelliJ IDEA, by removing `FlutterProjectOpenProcessor` and
+  migrating configuration logic to `FlutterInitializer`. (#8903)
+- IDE focus loss when running in full screen mode. (#8906)
+- Excessive toolbar updates causing exceptions in Android Studio, by making device selector updates targeted instead of global. (#8891)
+
+## 91.0.0
+
+### Changed
+
+- Gradle plugin version to re-enable running `./gradlew verifyPlugin` locally. (#8847)
+
+### Fixed
+
+- Gutter buttons not running tests with non-ASCII characters in their names. (#8838)
+- Freeze from JX Browser close. (#8864)
+- Crash in split debugger mode in IntelliJ 2025.3+. (#8878)
+- Passing additional arguments from the Flutter test template. (#8836)
 
 ## 90.0.0
 

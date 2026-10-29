@@ -16,15 +16,20 @@ import com.intellij.ui.components.labels.LinkLabel;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentManager;
 import com.intellij.util.ui.JBUI;
-import io.flutter.devtools.DevToolsUrl;
 import io.flutter.utils.AsyncUtils;
 import io.flutter.utils.LabelInput;
 import io.flutter.utils.OpenApiUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
-import java.awt.*;
+import javax.swing.Icon;
+import javax.swing.JComponent;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+import javax.swing.SwingUtilities;
+import java.awt.BorderLayout;
+import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -69,9 +74,10 @@ public abstract class EmbeddedBrowser {
           final Map<String, BrowserTab> tabs = windows.get(window);
           for (final String tabName : tabs.keySet()) {
             final BrowserTab tab = tabs.get(tabName);
-            if (tab.embeddedTab != null) {
+            final EmbeddedTab embeddedTab = tab.embeddedTab;
+            if (embeddedTab != null) {
               try {
-                tab.embeddedTab.close();
+                embeddedTab.close();
               }
               catch (Exception ex) {
                 logger().info(ex);
