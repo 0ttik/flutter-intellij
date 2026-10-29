@@ -33,6 +33,7 @@ import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.jetbrains.lang.dart.util.DartUrlResolver;
 import io.flutter.FlutterUtils;
+import io.flutter.run.FlutterDebugSessionUtils;
 import io.flutter.ObservatoryConnector;
 import io.flutter.logging.PluginLogger;
 import io.flutter.run.FlutterPositionMapper;
@@ -205,20 +206,17 @@ public class FlutterTestRunner extends GenericProgramRunner {
 
     // Set up source file mapping.
     final DartUrlResolver resolver = DartUrlResolver.getInstance(env.getProject(), launcher.getTestFileOrDir());
-    final FlutterPositionMapper.Analyzer analyzer = FlutterPositionMapper.Analyzer.create(env.getProject(), launcher.getTestFileOrDir());
-    final FlutterPositionMapper mapper = new FlutterPositionMapper(env.getProject(), launcher.getPubRoot().getRoot(), resolver, analyzer);
+    final FlutterPositionMapper mapper = new FlutterPositionMapper(env.getProject(), launcher.getPubRoot().getRoot(), resolver);
 
     // Create the debug session.
     final XDebuggerManager manager = XDebuggerManager.getInstance(env.getProject());
-    final XDebugSession session = manager.startSession(env, new XDebugProcessStarter() {
+    return FlutterDebugSessionUtils.startSessionAndGetDescriptor(manager, env, new XDebugProcessStarter() {
       @Override
       @NotNull
       public XDebugProcess start(@NotNull final XDebugSession session) {
         return new TestDebugProcess(env, session, executionResult, resolver, connector, mapper);
       }
-    });
-
-    return session.getRunContentDescriptor();
+    }, false);
   }
 
   /**

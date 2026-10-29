@@ -13,8 +13,14 @@ import org.jetbrains.intellij.platform.gradle.models.ProductRelease
 import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import org.gradle.api.DefaultTask
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Internal
+import org.gradle.api.tasks.TaskAction
 
 // Specify UTF-8 for all compilations so we avoid Windows-1252.
 allprojects {
@@ -40,22 +46,39 @@ plugins {
   // https://plugins.gradle.org/plugin/org.jetbrains.intellij.platform
   // https://plugins.gradle.org/plugin/org.jetbrains.kotlin.jvm
   id("java") // Java support
-  id("org.jetbrains.intellij.platform") version "2.10.5" // IntelliJ Platform Gradle Plugin
-  id("org.jetbrains.kotlin.jvm") version "2.2.0" // Kotlin support
-  id("org.jetbrains.changelog") version "2.2.0" // Gradle Changelog Plugin
-  id("org.jetbrains.kotlinx.kover") version "0.9.4"
+  alias(libs.plugins.intellij.platform) // IntelliJ Platform Gradle Plugin
+  alias(libs.plugins.kotlin.jvm) // Kotlin support
+  alias(libs.plugins.changelog) // Gradle Changelog Plugin
+  alias(libs.plugins.kover)
   idea // IntelliJ IDEA support
+}
+
+val commitHash by lazy {
+  System.getenv("KOKORO_GIT_COMMIT")?.takeIf { it.isNotBlank() }?.take(7) ?: try {
+    providers.exec {
+      commandLine("git", "rev-parse", "--short", "HEAD")
+    }.standardOutput.asText.get().trim().take(7)
+  } catch (_: Exception) {
+    // Catching all exceptions here is intentional: if git is not installed, or if this is built
+    // outside of a git repository clone (e.g. from a source zip release), we want the build
+    // to gracefully proceed with an empty hash instead of crashing.
+    ""
+  }
 }
 
 // By default (e.g. when we call `runIde` during development), the plugin version is SNAPSHOT
 var flutterPluginVersion = "SNAPSHOT"
 
+val isRelease = providers.gradleProperty("release").isPresent
+val isDev = providers.gradleProperty("dev").isPresent
+val singleIdeVersionProvider = providers.gradleProperty("singleIdeVersion")
+
 // Otherwise, we will decide on the proper semver-formatted version from the CHANGELOG.
 // Note: The CHANGELOG follows the style from https://keepachangelog.com/en/1.0.0/ so that we can use the gradle changelog plugin.
-if (project.hasProperty("release")) {
+if (isRelease) {
   // If we are building for a release, the changelog should be updated with the latest version.
   flutterPluginVersion = changelog.getLatest().version
-} else if (project.hasProperty("dev")) {
+} else if (isDev) {
   // If we are building the dev version, the version label will increment the latest version from the changelog and append the date.
   val latestVersion = changelog.getLatest().version
   val majorVersion = latestVersion.substringBefore('.').toInt()
@@ -63,26 +86,22 @@ if (project.hasProperty("release")) {
   val datestamp = DateTimeFormatter.ofPattern("yyyyMMdd").format(LocalDate.now())
   flutterPluginVersion = "$nextMajorVersion.0.0-dev.$datestamp"
 
-  val commitHash = System.getenv("KOKORO_GIT_COMMIT")
-  if (commitHash is String) {
-    val shortCommitHash = commitHash.take(7)
-    flutterPluginVersion += "-$shortCommitHash"
+  if (commitHash.isNotEmpty()) {
+    flutterPluginVersion += "-$commitHash"
   }
 }
 
-val ideaVersion = providers.gradleProperty("ideaVersion").get()
+val androidStudioVersion = providers.gradleProperty("androidStudioVersion").get()
 val dartPluginVersion = providers.gradleProperty("dartPluginVersion").get()
 val sinceBuildInput = providers.gradleProperty("sinceBuild").get()
-val untilBuildInput = providers.gradleProperty("untilBuild").get()
 val javaVersion = providers.gradleProperty("javaVersion").get()
 group = "io.flutter"
 
 // For debugging purposes:
 println("flutterPluginVersion: $flutterPluginVersion")
-println("ideaVersion: $ideaVersion")
+println("androidStudioVersion: $androidStudioVersion")
 println("dartPluginVersion: $dartPluginVersion")
 println("sinceBuild: $sinceBuildInput")
-println("untilBuild: $untilBuildInput")
 println("javaVersion: $javaVersion")
 println("group: $group")
 
@@ -97,7 +116,7 @@ jvmVersion = when (javaVersion) {
   }
 
   else -> {
-    throw IllegalArgumentException("javaVersion must be defined in the product matrix as either \"17\" or \"21\", but is not for $ideaVersion")
+    throw IllegalArgumentException("javaVersion must be defined in the product matrix as either \"17\" or \"21\", but is not for $androidStudioVersion")
   }
 }
 
@@ -125,30 +144,44 @@ javaCompatibilityVersion = when (javaVersion) {
   }
 
   else -> {
-    throw IllegalArgumentException("javaVersion must be defined in the product matrix as either \"17\" or \"21\", but is not for $ideaVersion")
+    throw IllegalArgumentException("javaVersion must be defined in the product matrix as either \"17\" or \"21\", but is not for $androidStudioVersion")
   }
 }
 
+// Without auto-provisioning, the running JVM is the toolchain, so it must be able to target javaVersion.
+if (JavaVersion.current() < javaCompatibilityVersion) {
+  throw GradleException(
+    "Gradle is running on JDK ${JavaVersion.current().majorVersion}, but JDK $javaVersion or newer is required. " +
+      "Set JAVA_HOME (or the IDE's Gradle JVM) to JDK $javaVersion+."
+  )
+}
+
 java {
+  toolchain {
+    // Dynamically use the running JVM version for the toolchain so Gradle does not search for or download a
+    // specific JDK on CI or locally. The bytecode level is still enforced by `options.release` and `jvmTarget`.
+    languageVersion.set(JavaLanguageVersion.of(JavaVersion.current().majorVersion))
+  }
   sourceCompatibility = javaCompatibilityVersion
   targetCompatibility = javaCompatibilityVersion
 }
 
+tasks.withType<JavaCompile>().configureEach {
+  // Enforce the target bytecode version and standard library API level, since the toolchain may be newer.
+  options.release.set(javaVersion.toInt())
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+  compilerOptions {
+    // Same as above, but for Kotlin; otherwise jvmTarget defaults to the (possibly newer) toolchain version.
+    jvmTarget.set(jvmVersion)
+  }
+}
+
 sourceSets {
   main {
-    java.srcDirs(
-      listOf(
-        "src",
-        "third_party/vmServiceDrivers"
-      )
-    )
-    kotlin.srcDirs(
-      listOf(
-        "src",
-        "third_party/vmServiceDrivers"
-      )
-    )
-    // Add kotlin.srcDirs if we start using Kotlin in the main plugin.
+    java.srcDirs(listOf("src"))
+    kotlin.srcDirs(listOf("src"))
     resources.srcDirs(
       listOf(
         "src",
@@ -202,7 +235,7 @@ dependencies {
     // https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html#default-target-platforms
     // Android Studio versions can be found at: https://plugins.jetbrains.com/docs/intellij/android-studio-releases-list.html
     try {
-      androidStudio(ideaVersion)
+      androidStudio(androidStudioVersion)
     } catch (e: Exception) {
       throw GradleException(
         "Failed to resolve Android Studio / IDEA download URL. This is likely due to a network issue blocking the download URL. Please check your internet connection or VPN.",
@@ -225,27 +258,27 @@ dependencies {
         "org.jetbrains.kotlin",
         "org.jetbrains.plugins.gradle",
         "org.jetbrains.plugins.yaml",
-        "org.intellij.intelliLang",
         "org.jetbrains.android",
         "com.android.tools.idea.smali"
       )
     )
     plugin("Dart:$dartPluginVersion")
+    plugin("com.redhat.devtools.lsp4ij:${libs.versions.lsp4ij.get()}")
+    bundledModule("intellij.platform.langInjection")
 
-    if (sinceBuildInput == "243" || sinceBuildInput == "251") {
-      bundledModule("intellij.platform.coverage")
-      bundledModule("intellij.platform.coverage.agent")
-    }
+    bundledModule("intellij.platform.coverage")
+    bundledModule("intellij.platform.coverage.agent")
     pluginVerifier()
   }
 
-  compileOnly("org.jetbrains:annotations:24.0.0")
-  testImplementation("org.jetbrains:annotations:24.0.0")
-  compileOnly("com.google.guava:guava:32.0.1-android")
-  compileOnly("com.google.code.gson:gson:2.10.1")
-  testImplementation("com.google.guava:guava:32.0.1-jre")
-  testImplementation("com.google.code.gson:gson:2.10.1")
-  testImplementation("junit:junit:4.13.2")
+  compileOnly(libs.jetbrains.annotations)
+  testImplementation(libs.jetbrains.annotations)
+  compileOnly(libs.guava.android)
+  compileOnly(libs.gson)
+  testImplementation(libs.guava.jre)
+  testImplementation(libs.gson)
+  testImplementation(libs.junit)
+  testImplementation(libs.bytebuddy)
   implementation(
     fileTree(
       mapOf(
@@ -256,12 +289,12 @@ dependencies {
   )
 
   // UI Test dependencies
-  integrationImplementation("org.kodein.di:kodein-di-jvm:7.26.1")
-  integrationImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+  integrationImplementation(libs.kodein.di)
+  integrationImplementation(libs.kotlinx.coroutines)
 
   // JUnit 5 is required for UI tests
-  integrationImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
-  integrationRuntimeOnly("org.junit.platform:junit-platform-launcher")
+  integrationImplementation(libs.junit.jupiter)
+  integrationRuntimeOnly(libs.junit.platform.launcher)
 }
 
 intellijPlatform {
@@ -269,7 +302,6 @@ intellijPlatform {
     version = flutterPluginVersion
     ideaVersion {
       sinceBuild = sinceBuildInput
-      untilBuild = untilBuildInput
     }
     changeNotes = provider {
       project.changelog.renderItem(project.changelog.getLatest(), Changelog.OutputType.HTML)
@@ -301,12 +333,10 @@ intellijPlatform {
     )
     verificationReportsFormats = VerifyPluginTask.VerificationReportsFormats.ALL
     subsystemsToCheck = VerifyPluginTask.Subsystems.ALL
-    ignoredProblemsFile.set(project.file("verify-ignore-problems.txt"))
-
     ides {
       // `singleIdeVersion` is only intended for use by GitHub actions to enable deleting instances of IDEs after testing.
-      if (project.hasProperty("singleIdeVersion")) {
-        val singleIdeVersion = project.property("singleIdeVersion") as String
+      if (singleIdeVersionProvider.isPresent) {
+        val singleIdeVersion = singleIdeVersionProvider.get()
         select {
           types = listOf(IntelliJPlatformType.AndroidStudio)
           channels = listOf(ProductRelease.Channel.RELEASE)
@@ -322,7 +352,7 @@ intellijPlatform {
 
 // If we don't delete old versions of the IDE during `verifyPlugin`, then GitHub action bots can run out of space.
 tasks.withType<VerifyPluginTask> {
-  if (project.hasProperty("singleIdeVersion")) {
+  if (singleIdeVersionProvider.isPresent) {
     doLast {
       ides.forEach { ide ->
         if (ide.exists()) {
@@ -338,15 +368,13 @@ tasks.withType<VerifyPluginTask> {
   }
 }
 
-tasks {
-  register<Test>("integration") {
-    description = "Runs only the UI integration tests that start the IDE"
+intellijPlatformTesting.testIde.register("integration") {
+  task {
+    description = "Runs integration tests"
     group = "verification"
     testClassesDirs = sourceSets["integration"].output.classesDirs
-    classpath = sourceSets["integration"].runtimeClasspath
-    useJUnitPlatform {
-      includeTags("ui")
-    }
+    classpath += sourceSets["integration"].runtimeClasspath
+    useJUnitPlatform()
 
     // UI tests should run sequentially (not in parallel) to avoid conflicts
     maxParallelForks = 1
@@ -355,17 +383,7 @@ tasks {
     minHeapSize = "1g"
     maxHeapSize = "4g"
 
-    systemProperty("path.to.build.plugin", buildPlugin.get().archiveFile.get().asFile.absolutePath)
-    systemProperty("idea.home.path", providers.provider {
-      try {
-        prepareTestSandbox.get().destinationDir.parentFile.absolutePath
-      } catch (e: Exception) {
-        throw GradleException(
-          "Failed to resolve Android Studio/ IDEA path. This is likely due to a network issue blocking the download URL. Please check your internet connection or VPN.",
-          e
-        )
-      }
-    })
+    systemProperty("path.to.build.plugin", project.tasks.buildPlugin.get().archiveFile.get().asFile.absolutePath)
     systemProperty(
       "allure.results.directory", project.layout.buildDirectory.get().asFile.absolutePath + "/allure-results"
     )
@@ -381,7 +399,7 @@ tasks {
       )
     }
 
-    dependsOn(buildPlugin)
+    dependsOn(project.tasks.buildPlugin)
   }
 }
 
@@ -389,12 +407,20 @@ tasks {
 // https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-faq.html#how-to-check-the-latest-available-eap-release
 tasks {
   printProductsReleases {
-    channels = listOf(ProductRelease.Channel.EAP)
-    types = listOf(IntelliJPlatformType.IntellijIdeaCommunity)
+    channels = listOf(ProductRelease.Channel.RELEASE, ProductRelease.Channel.EAP)
+    types = listOf(IntelliJPlatformType.IntellijIdeaCommunity, IntelliJPlatformType.IntellijIdeaUltimate, IntelliJPlatformType.AndroidStudio)
     untilBuild = provider { null }
 
     doLast {
       productsReleases.get().max()
+      println()
+      println("Mapping printProductsReleases output to ideV:")
+      println(" - The prefix (e.g., IU-, IC-, AI-) maps to -Pide (Ultimate, IntelliJ, Android Studio).")
+      println(" - The number part (e.g., 261.23567.71) maps to -PideV.")
+      println(" - Example: IU-261.23567.71 -> -Pide=Ultimate -PideV=261.23567.71")
+      println(" - Example: AI-2025.3.3.6 -> -Pide=AndroidStudio -PideV=2025.3.3.6")
+
+      println()
     }
   }
   prepareJarSearchableOptions {
@@ -411,6 +437,53 @@ tasks {
       showStandardStreams = true
       exceptionFormat = TestExceptionFormat.FULL
       events("skipped", "failed")
+    }
+  }
+}
+
+intellijPlatformTesting {
+  runIde {
+    register("runTarget") {
+      val target = project.findProperty("ide") as? String
+      val version = project.findProperty("ideV") as? String
+      
+      val actualTarget = target ?: "AndroidStudio"
+      type = when (actualTarget) {
+        "IntelliJ" -> IntelliJPlatformType.IntellijIdeaCommunity
+        "Ultimate" -> IntelliJPlatformType.IntellijIdeaUltimate
+        else -> IntelliJPlatformType.AndroidStudio
+      }
+      this.version = version ?: androidStudioVersion
+    }
+  }
+}
+
+tasks.named("runTarget") {
+  val target = project.findProperty("ide") as? String
+  val version = project.findProperty("ideV") as? String
+  
+  doFirst {
+    if (target == null && version == null) {
+      println("============================================================")
+      println("runTarget - Available Options")
+      println("============================================================")
+      println("Valid values for -Pide:")
+      println(" - AndroidStudio (default)")
+      println(" - IntelliJ (IntelliJ IDEA Community)")
+      println(" - Ultimate (IntelliJ IDEA Ultimate)")
+      println()
+      println("Valid values for -PideV:")
+      println(" - Any valid version string for the selected IDE.")
+      println(" - Examples for IntelliJ/Ultimate: 2024.1, 2024.2, 2024.3, 2025.1")
+      println(" - Run './gradlew printProductsReleases' to see the full list.")
+      println()
+      println("Examples:")
+      println(" ./gradlew runTarget -Pide=IntelliJ -PideV=2025.1")
+      println(" ./gradlew runTarget -Pide=Ultimate -PideV=2025.1")
+      println("============================================================")
+      println("Stopping execution. Please run with parameters to launch a specific IDE.")
+      
+      throw org.gradle.api.tasks.StopExecutionException()
     }
   }
 }
@@ -467,4 +540,39 @@ tasks.withType<ProcessResources>().configureEach {
     // The context here is unambiguously the task itself.
     exclude("jxbrowser/jxbrowser.properties")
   }
+}
+
+abstract class PrintVersionTask : DefaultTask() {
+  @get:Input
+  abstract val pluginVersion: Property<String>
+
+  @get:Internal
+  abstract val archiveFileName: Property<String>
+
+  @TaskAction
+  fun action() {
+    println("Plugin Version: ${pluginVersion.get()}")
+    println("Archive File Name: ${archiveFileName.get()}")
+  }
+}
+
+tasks.register<PrintVersionTask>("printVersion") {
+  pluginVersion.set(intellijPlatform.pluginConfiguration.version)
+  val buildPluginTask = tasks.named<Zip>("buildPlugin")
+  archiveFileName.set(buildPluginTask.flatMap { it.archiveFileName })
+}
+
+tasks.named<Zip>("buildPlugin") {
+  val v = intellijPlatform.pluginConfiguration.version
+  archiveFileName.set(v.map { versionStr ->
+    if (project.hasProperty("versionedName")) {
+      if (commitHash.isNotEmpty() && !versionStr.contains(commitHash)) {
+        "Flutter-$versionStr-$commitHash.zip"
+      } else {
+        "Flutter-$versionStr.zip"
+      }
+    } else {
+      "Flutter.zip"
+    }
+  })
 }

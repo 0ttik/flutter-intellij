@@ -24,6 +24,7 @@ import io.flutter.FlutterMessages;
 import io.flutter.android.IntelliJAndroidSdk;
 import io.flutter.console.FlutterConsoles;
 import io.flutter.dart.DartPlugin;
+import com.jetbrains.lang.dart.analytics.Analytics;
 import io.flutter.logging.PluginLogger;
 import io.flutter.settings.FlutterSettings;
 import io.flutter.utils.MostlySilentColoredProcessHandler;
@@ -315,6 +316,9 @@ public class FlutterCommand {
     }
     line.addParameters(type.subCommand);
     line.addParameters(args);
+
+    Analytics.updateEnvironment(line);
+
     return line;
   }
 
@@ -325,7 +329,6 @@ public class FlutterCommand {
   enum Type {
     ATTACH("Flutter attach", "attach"),
     BUILD("Flutter build", "build"),
-    CHANNEL("Flutter channel", "channel"),
     CLEAN("Flutter clean", "clean"),
     CONFIG("Flutter config", "config"),
     CREATE("Flutter create", "create"),
