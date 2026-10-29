@@ -13,6 +13,8 @@ import io.flutter.run.LaunchState;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Objects;
+
 /**
  * The IntelliJ launch mode.
  */
@@ -22,6 +24,9 @@ public enum RunMode {
 
   @NonNls
   RUN(DefaultRunExecutor.EXECUTOR_ID, true),
+
+  @NonNls
+  COVERAGE("Coverage", false),
 
   @NonNls
   PROFILE("PROFILE", false);
@@ -55,6 +60,9 @@ public enum RunMode {
     }
     else if (DefaultDebugExecutor.EXECUTOR_ID.equals(mode)) {
       return DEBUG;
+    }
+    else if (Objects.equals(COVERAGE.myModeString, mode)) {
+      return COVERAGE;
     }
     else if (LaunchState.ANDROID_PROFILER_EXECUTOR_ID.equals(mode)) {
       return PROFILE;

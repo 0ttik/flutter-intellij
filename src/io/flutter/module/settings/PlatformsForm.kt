@@ -6,86 +6,56 @@
 package io.flutter.module.settings
 
 import com.intellij.openapi.ui.DialogPanel
-import com.intellij.ui.layout.*
+import com.intellij.ui.dsl.builder.Row
+import com.intellij.ui.dsl.builder.actionListener
+import com.intellij.ui.dsl.builder.panel
+import com.intellij.ui.dsl.builder.selected
+import com.intellij.ui.layout.ComponentPredicate
 import io.flutter.FlutterBundle
 import io.flutter.sdk.FlutterCreateAdditionalSettings
-import io.flutter.sdk.FlutterSdk
-import io.flutter.sdk.FlutterSdkChannel
-import io.flutter.sdk.FlutterSdkChannel.ID
-import java.util.function.Supplier
 
-class PlatformsForm(getSdk: Supplier<out FlutterSdk>) {
-
-  val sdkGetter = getSdk
-  var channel: FlutterSdkChannel? = null
-  var configAndroid: Boolean? = null
-  var configIos: Boolean? = null
-  var configLinux: Boolean? = null
-  var configMacos: Boolean? = null
-  var configWeb: Boolean? = null
-  var configWindows: Boolean? = null
+class PlatformsForm {
+  private var configAndroid: Boolean = true
+  private var configIos: Boolean = true
+  private var configLinux: Boolean = true
+  private var configMacos: Boolean = true
+  private var configWeb: Boolean = true
+  private var configWindows: Boolean = true
   var component: DialogPanel? = null
-
-  fun initChannel() {
-    val sdk = sdkGetter.get()
-    channel = sdk.queryFlutterChannel(true)
-    // Use the settings defined by `flutter config` as the default value for the check boxes.
-    val platforms = sdk.queryConfiguredPlatforms(true)
-    configAndroid = platforms.contains("enable-android")
-    configIos = platforms.contains("enable-ios")
-    configLinux = platforms.contains("enable-linux-desktop")
-    configMacos = platforms.contains("enable-macos-desktop")
-    configWeb = platforms.contains("enable-web")
-    configWindows = platforms.contains("enable-windows-desktop")
-  }
-
-  fun shouldBeVisible(): Boolean {
-    // TODO (messick) Keep this up-to-date with Flutter SDK changes.
-    val ch = channel
-    ch ?: return false
-    return ch.id > ID.STABLE || sdkGetter.get().version.stableChannelSupportsPlatforms();
-  }
 
   fun panel(settings: FlutterCreateAdditionalSettings) =
     panel {
       row {
-        cell(isVerticalFlow = false) {
-          makeCheckBox(this, FlutterBundle.message("npw_platform_android"), settings.platformAndroidProperty, configAndroid)
-          makeCheckBox(this, FlutterBundle.message("npw_platform_ios"), settings.platformIosProperty, configIos)
-          makeCheckBox(this, FlutterBundle.message("npw_platform_linux"), settings.platformLinuxProperty, configLinux)
-          makeCheckBox(this, FlutterBundle.message("npw_platform_macos"), settings.platformMacosProperty, configMacos)
-          makeCheckBox(this, FlutterBundle.message("npw_platform_web"), settings.platformWebProperty, configWeb)
-          makeCheckBox(this, FlutterBundle.message("npw_platform_windows"), settings.platformWindowsProperty, configWindows)
-        }
-      }
-      row {
-        label(FlutterBundle.message("npw_platform_availability_help")).apply {
-          comment(FlutterBundle.message("npw_platform_availability_comment"))
-        }
+        makeCheckBox(FlutterBundle.message("npw_platform_android"), settings.platformAndroidProperty, configAndroid)
+        makeCheckBox(FlutterBundle.message("npw_platform_ios"), settings.platformIosProperty, configIos)
+        makeCheckBox(FlutterBundle.message("npw_platform_linux"), settings.platformLinuxProperty, configLinux)
+        makeCheckBox(FlutterBundle.message("npw_platform_macos"), settings.platformMacosProperty, configMacos)
+        makeCheckBox(FlutterBundle.message("npw_platform_web"), settings.platformWebProperty, configWeb)
+        makeCheckBox(FlutterBundle.message("npw_platform_windows"), settings.platformWindowsProperty, configWindows)
       }
       row {
         label(FlutterBundle.message("npw_platform_selection_help"))
       }
     }.apply { component = this }
 
-  private fun makeCheckBox(context: Cell,
-                           name: String,
-                           property: InitializeOnceBoolValueProperty,
-                           config: Boolean?) {
-    context.apply {
-      val wasSelected = config == true
-      property.initialize(wasSelected)
-      checkBox(name,
-               property.get(),
-               actionListener = { _, checkBox ->
-                 property.set(checkBox.isSelected)
-               }).apply {
-        val names: List<String> = listOf(
-          FlutterBundle.message("npw_platform_android"),
-          FlutterBundle.message("npw_platform_ios"),
-          FlutterBundle.message("npw_platform_web"))
-        enabled(names.contains(name) || wasSelected)
-      }
-    }
+  private fun Row.makeCheckBox(
+    name: String,
+    property: InitializeOnceBoolValueProperty,
+    config: Boolean?
+  ) {
+    val wasSelected = config == true
+    property.initialize(wasSelected)
+
+    val names: List<String> = listOfNotNull(
+      FlutterBundle.message("npw_platform_android"),
+      FlutterBundle.message("npw_platform_ios"),
+      FlutterBundle.message("npw_platform_web"),
+      FlutterBundle.message("npw_platform_windows"),
+      FlutterBundle.message("npw_platform_linux"),
+      FlutterBundle.message("npw_platform_macos"),
+    )
+
+    checkBox(name).actionListener { _, button -> property.set(button.isSelected) }.selected(property.get())
+      .enabledIf(ComponentPredicate.fromValue(names.contains(name) || wasSelected))
   }
 }

@@ -9,6 +9,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 
+
 public class FlutterErrorHelperTest {
   @Test
   public void testGetAnalyticsId() {
@@ -67,9 +68,10 @@ public class FlutterErrorHelperTest {
     assertEquals(
       "renderbox-was-not-laid-out",
       FlutterErrorHelper
-        .getAnalyticsId("RenderBox was not laid out: RenderViewport#d878b NEEDS-LAYOUT NEEDS-PAINT NEEDS-COMPOSITING-BITS-UPDATE\n" +
-                        "'package:flutter/src/rendering/box.dart':\n" +
-                        "Failed assertion: line 1785 pos 12: 'hasSize'"));
+        .getAnalyticsId("""
+                          RenderBox was not laid out: RenderViewport#d878b NEEDS-LAYOUT NEEDS-PAINT NEEDS-COMPOSITING-BITS-UPDATE
+                          'package:flutter/src/rendering/box.dart':
+                          Failed assertion: line 1785 pos 12: 'hasSize'"""));
     assertEquals(
       "null-check-operator-used-on-a-null-value",
       FlutterErrorHelper.getAnalyticsId("Null check operator used on a null value"));
@@ -94,24 +96,50 @@ public class FlutterErrorHelperTest {
 
     assertEquals(
       "simple-assertion",
-      FlutterErrorHelper.getAnalyticsId("simple assertion\n" +
-                                        "'package:flutter_error_studies/main.dart':\n" +
-                                        "Failed assertion: line 40 pos 12: '1 == 2'"));
+      FlutterErrorHelper.getAnalyticsId("""
+                                          simple assertion
+                                          'package:flutter_error_studies/main.dart':
+                                          Failed assertion: line 40 pos 12: '1 == 2'"""));
     assertEquals(
       "failed-assertion",
       FlutterErrorHelper
         .getAnalyticsId("'package:flutter_error_studies/main.dart': Failed assertion: line 41 pos 12: '1 == 2': is not true."));
     assertEquals(
       "simple-assertion",
-      FlutterErrorHelper.getAnalyticsId("simple assertion\n" +
-                                        "'package:flutter_error_studies/main.dart':\n" +
-                                        "Failed assertion: line 42 pos 12: '() {\n" +
-                                        "      return 1 == 2;\n" +
-                                        "    }()'"));
+      FlutterErrorHelper.getAnalyticsId("""
+                                          simple assertion
+                                          'package:flutter_error_studies/main.dart':
+                                          Failed assertion: line 42 pos 12: '() {
+                                                return 1 == 2;
+                                              }()'"""));
     assertEquals(
       "failed-assertion",
-      FlutterErrorHelper.getAnalyticsId("'package:flutter_error_studies/main.dart': Failed assertion: line 45 pos 12: '() {\n" +
-                                        "      return 1 == 2;\n" +
-                                        "    }()': is not true."));
+      FlutterErrorHelper.getAnalyticsId("""
+                                          'package:flutter_error_studies/main.dart': Failed assertion: line 45 pos 12: '() {
+                                                return 1 == 2;
+                                              }()': is not true."""));
+  }
+
+  @Test
+  public void testGetAnalyticsId_edgeCases() {
+    assertEquals(
+        "xxx-error",
+        FlutterErrorHelper.getAnalyticsId("123 error")); // Numbers at start
+
+    assertEquals(
+        "error-with-multiple-spaces",
+        FlutterErrorHelper.getAnalyticsId("Error   with    multiple   spaces"));
+
+    assertEquals(
+        "error-with-parens",
+        FlutterErrorHelper.getAnalyticsId("Error with (some variable info) parens"));
+
+    assertEquals(
+        "long-error-message-that-should-ideally-be-truncated-or-handled-but-currently-is-just-dashified",
+        FlutterErrorHelper.getAnalyticsId(
+            "Long error message that should ideally be truncated or handled but currently is just dashified"));
+
+    assertEquals("", FlutterErrorHelper.getAnalyticsId(""));
+    assertEquals("", FlutterErrorHelper.getAnalyticsId("   "));
   }
 }

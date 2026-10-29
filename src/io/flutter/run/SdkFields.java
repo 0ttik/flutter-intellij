@@ -11,15 +11,17 @@ import com.intellij.execution.configurations.RuntimeConfigurationError;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.execution.ParametersListUtil;
+import com.intellij.util.xmlb.annotations.OptionTag;
+import com.intellij.util.xmlb.annotations.XMap;
 import com.jetbrains.lang.dart.sdk.DartConfigurable;
 import com.jetbrains.lang.dart.sdk.DartSdk;
 import io.flutter.FlutterBundle;
-import io.flutter.FlutterInitializer;
+import io.flutter.FlutterUtils;
 import io.flutter.dart.DartPlugin;
+import io.flutter.logging.PluginLogger;
 import io.flutter.pub.PubRoot;
 import io.flutter.pub.PubRootCache;
 import io.flutter.run.common.RunMode;
@@ -31,18 +33,21 @@ import io.flutter.settings.FlutterSettings;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Fields used when launching an app using the Flutter SDK (non-bazel).
+ * Fields used when launching an app using the Flutter SDK.
  */
 public class SdkFields {
-  private static final Logger LOG = Logger.getInstance(SdkFields.class);
+  private static final @NotNull Logger LOG = PluginLogger.createLogger(SdkFields.class);
   private @Nullable String filePath;
   private @Nullable String buildFlavor;
   private @Nullable String additionalArgs;
   private @Nullable String attachArgs;
+  private @NotNull Map<String, String> envs = new LinkedHashMap<>();
 
   public SdkFields() {
   }
@@ -50,7 +55,7 @@ public class SdkFields {
   /**
    * Creates SDK fields from a Dart file containing a main method.
    */
-  public SdkFields(VirtualFile launchFile) {
+  public SdkFields(@NotNull VirtualFile launchFile) {
     filePath = launchFile.getPath();
   }
 
@@ -88,12 +93,14 @@ public class SdkFields {
   public String[] getAdditionalArgsParsed() {
     if (hasAdditionalArgs()) {
       assert additionalArgs != null;
-      return ParametersListUtil.parse(additionalArgs, false, true, true).toArray(new String[0]);
+      return ParametersListUtil.parse(additionalArgs, false, false, true).stream().filter(s -> !s.isEmpty())
+        .toArray(String[]::new);
     }
 
     return new String[0];
   }
 
+  @Nullable
   public String getAttachArgs() {
     return attachArgs;
   }
@@ -109,7 +116,8 @@ public class SdkFields {
   public String[] getAttachArgsParsed() {
     if (hasAttachArgs()) {
       assert attachArgs != null;
-      return ParametersListUtil.parse(attachArgs, false, true, true).toArray(new String[0]);
+      return ParametersListUtil.parse(attachArgs, false, false, true).stream().filter(s -> !s.isEmpty())
+        .toArray(String[]::new);
     }
     return new String[0];
   }
@@ -132,11 +140,24 @@ public class SdkFields {
   public void setWorkingDirectory(final @Nullable String dir) {
   }
 
+  @NotNull
+  @OptionTag
+  @XMap
+  public Map<String, String> getEnvs() {
+    return envs;
+  }
+
+  public void setEnvs(final Map<String, String> envs) {
+    if (envs != null) { // null comes from old projects or if storage corrupted
+      this.envs = envs;
+    }
+  }
+
   /**
    * Reports any errors that the user should correct.
    * <p>This will be called while the user is typing; see RunConfiguration.checkConfiguration.
    *
-   * @throws RuntimeConfigurationError for an error that that the user must correct before running.
+   * @throws RuntimeConfigurationError for an error that the user must correct before running.
    */
   void checkRunnable(@NotNull Project project) throws RuntimeConfigurationError {
     // TODO(pq): consider validating additional args values
@@ -178,49 +199,49 @@ public class SdkFields {
     if (buildFlavor != null) {
       args = ArrayUtil.append(args, "--flavor=" + buildFlavor);
     }
-    if (FlutterSettings.getInstance().isShowStructuredErrors() && flutterSdk.getVersion().isDartDefineSupported()) {
+    if (FlutterSettings.getInstance().isShowStructuredErrors()) {
       args = ArrayUtil.append(args, "--dart-define=flutter.inspector.structuredErrors=true");
     }
 
-    if (flutterSdk.getVersion().flutterRunSupportsDevToolsUrl()) {
-      try {
-        final ProgressManager progress = ProgressManager.getInstance();
+    try {
+      final ProgressManager progress = ProgressManager.getInstance();
 
-        final CompletableFuture<DevToolsInstance> devToolsFuture = new CompletableFuture<>();
-        progress.runProcessWithProgressSynchronously(() -> {
-          progress.getProgressIndicator().setIndeterminate(true);
-          try {
-            final CompletableFuture<DevToolsInstance> futureInstance = DevToolsService.getInstance(project).getDevToolsInstance();
-            if (firstRun) {
-              devToolsFuture.complete(futureInstance.get(30, TimeUnit.SECONDS));
-            } else {
-              // Skip waiting if this isn't the first time running this project. If DevTools isn't available by now, there's likely to be
-              // something wrong that won't be fixed by restarting, so we don't want to keep delaying run.
-              final DevToolsInstance instance = futureInstance.getNow(null);
-              if (instance == null) {
-                devToolsFuture.completeExceptionally(new Exception("DevTools instance not available after first run."));
-              } else {
-                devToolsFuture.complete(instance);
-              }
+      final CompletableFuture<DevToolsInstance> devToolsFuture = new CompletableFuture<>();
+      progress.runProcessWithProgressSynchronously(() -> {
+        progress.getProgressIndicator().setIndeterminate(true);
+        try {
+          final CompletableFuture<DevToolsInstance> futureInstance = DevToolsService.getInstance(project).getDevToolsInstance();
+          if (firstRun) {
+            devToolsFuture.complete(futureInstance.get(30, TimeUnit.SECONDS));
+          }
+          else {
+            // Skip waiting if this isn't the first time running this project. If DevTools isn't available by now, there's likely to be
+            // something wrong that won't be fixed by restarting, so we don't want to keep delaying run.
+            final DevToolsInstance instance = futureInstance.getNow(null);
+            if (instance == null) {
+              devToolsFuture.completeExceptionally(new Exception("DevTools instance not available after first run."));
+            }
+            else {
+              devToolsFuture.complete(instance);
             }
           }
-          catch (Exception e) {
-            devToolsFuture.completeExceptionally(e);
-          }
-        }, "Starting DevTools", false, project);
-        final DevToolsInstance instance = devToolsFuture.get();
-        args = ArrayUtil.append(args, "--devtools-server-address=http://" + instance.host + ":" + instance.port);
-        if (firstRun) {
-          FlutterInitializer.getAnalytics().sendEvent("devtools", "first-run-success");
         }
-      }
-      catch (Exception e) {
-        LOG.info(e);
-        FlutterInitializer.getAnalytics().sendException(StringUtil.getThrowableText(e), false);
-      }
+        catch (Exception e) {
+          devToolsFuture.completeExceptionally(e);
+        }
+      }, "Starting DevTools", false, project);
+      final DevToolsInstance instance = devToolsFuture.get();
+      //noinspection HttpUrlsUsage
+      args = ArrayUtil.append(args, "--devtools-server-address=http://" + instance.host() + ":" + instance.port());
+    }
+    catch (Exception e) {
+      FlutterUtils.warn(LOG, "Error while starting DevTools", e, true);
     }
     command = flutterSdk.flutterRun(root, main.getFile(), device, runMode, flutterLaunchMode, project, args);
-    return command.createGeneralCommandLine(project);
+    final GeneralCommandLine commandLine = command.createGeneralCommandLine(project);
+    commandLine.getEnvironment().putAll(getEnvs());
+    commandLine.withParentEnvironmentType(GeneralCommandLine.ParentEnvironmentType.CONSOLE);
+    return commandLine;
   }
 
   /**
@@ -241,7 +262,7 @@ public class SdkFields {
       throw new ExecutionException("Entrypoint isn't within a Flutter pub root");
     }
 
-    String[] args = getAttachArgsParsed();
+    final String[] args = getAttachArgsParsed();
     final FlutterCommand command = flutterSdk.flutterAttach(root, main.getFile(), device, flutterLaunchMode, args);
     return command.createGeneralCommandLine(project);
   }
@@ -251,6 +272,7 @@ public class SdkFields {
     copy.setFilePath(filePath);
     copy.setAdditionalArgs(additionalArgs);
     copy.setBuildFlavor(buildFlavor);
+    copy.envs.putAll(envs);
     return copy;
   }
 

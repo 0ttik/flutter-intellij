@@ -33,8 +33,8 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
-@SuppressWarnings("Duplicates")
 public class DartTestLocationProviderZ implements SMTestLocator, DumbAware {
   @SuppressWarnings("rawtypes")
   private static final List<Location> NONE = Collections.emptyList();
@@ -88,6 +88,7 @@ public class DartTestLocationProviderZ implements SMTestLocator, DumbAware {
   protected Location<PsiElement> getLocationByLineAndColumn(@NotNull final PsiFile file, final int line, final int column) {
     final Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
     if (document == null) return null;
+    if (line >= document.getLineCount()) return null;
 
     final int offset = document.getLineStartOffset(line) + column;
     final PsiElement element = file.findElementAt(offset);
@@ -117,17 +118,16 @@ public class DartTestLocationProviderZ implements SMTestLocator, DumbAware {
     final List<Location> locations = new ArrayList<>();
 
     if (psiFile instanceof DartFile && !nodes.isEmpty()) {
-      final PsiElementProcessor<PsiElement> collector = new PsiElementProcessor<PsiElement>() {
+      final PsiElementProcessor<PsiElement> collector = new PsiElementProcessor<>() {
         @Override
         public boolean execute(@NotNull final PsiElement element) {
-          if (element instanceof DartCallExpression) {
-            DartCallExpression expression = (DartCallExpression)element;
+          if (element instanceof DartCallExpression expression) {
             if (isTest(expression) || TestUtil.isGroup(expression)) {
-              if (nodes.get(nodes.size() - 1).equals(getTestLabel(expression))) {
+              if (Objects.equals(nodes.get(nodes.size() - 1), getTestLabel(expression))) {
                 boolean matches = true;
                 for (int i = nodes.size() - 2; i >= 0 && matches; --i) {
                   expression = getGroup(expression);
-                  if (expression == null || !nodes.get(i).equals(getTestLabel(expression))) {
+                  if (expression == null || !Objects.equals(nodes.get(i), getTestLabel(expression))) {
                     matches = false;
                   }
                 }

@@ -5,24 +5,18 @@
  */
 package io.flutter.utils;
 
-import com.intellij.lang.java.JavaParserDefinition;
-import com.intellij.lexer.Lexer;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectType;
 import com.intellij.openapi.project.ProjectTypeService;
-import com.intellij.pom.java.LanguageLevel;
-import com.intellij.psi.JavaTokenType;
-import com.intellij.psi.tree.java.IKeywordElementType;
-import com.intellij.util.containers.WeakList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import javax.lang.model.SourceVersion;
+import java.util.Collection;
 
 // based on: org.jetbrains.android.util.AndroidUtils
 @SuppressWarnings("LocalCanBeFinal")
 public class AndroidUtils {
-
-  private static final Lexer JAVA_LEXER = JavaParserDefinition.createLexer(LanguageLevel.JDK_1_5);
-
   // Flutter internal implementation dependencies.
   public static final String FLUTTER_MODULE_NAME = "flutter";
 
@@ -73,15 +67,15 @@ public class AndroidUtils {
 
   @Nullable
   public static String isReservedKeyword(@NotNull String string) {
-    Lexer lexer = JAVA_LEXER;
-    lexer.start(string);
-    if (lexer.getTokenType() != JavaTokenType.IDENTIFIER) {
-      if (lexer.getTokenType() instanceof IKeywordElementType) {
-        return "Package names cannot contain Java keywords like '" + string + "'";
-      }
-      if (string.isEmpty()) {
-        return "Package segments must be of non-zero length";
-      }
+    if (string.isEmpty()) {
+      return "Package segments must be of non-zero length";
+    }
+
+    SourceVersion javaSource = SourceVersion.latest();
+    if (javaSource.isKeyword(string)) {
+      return "Package names cannot contain Java keywords like '" + string + "'";
+    }
+    if (!javaSource.isIdentifier(string)) {
       return string + " is not a valid identifier";
     }
     return null;
@@ -128,7 +122,10 @@ public class AndroidUtils {
     // IntelliJ-created Android project we need to set it. We need to allow an alternative
     // name. GradleResourceCompilerConfigurationGenerator depends on "Android".
     // TODO(messick) Recognize both native Android Studio and IntelliJ Android projects.
-    ProjectType projectType = ProjectTypeService.getProjectType(project);
-    return projectType != null && "Android".equals(projectType.getId());
+    Collection<ProjectType> projectTypes = ProjectTypeService.getProjectTypes(project);
+    for (ProjectType projectType : projectTypes) {
+      return projectType != null && "Android".equals(projectType.getId());
+    }
+    return false;
   }
 }

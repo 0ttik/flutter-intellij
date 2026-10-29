@@ -6,56 +6,59 @@ import 'dart:io';
 
 import 'package:markdown/markdown.dart';
 
-import 'artifact.dart';
 import 'util.dart';
 
 class BuildSpec {
   // Build targets
+  // TODO (jwren) can we get rid of "name"
   final String name;
+
+  // TODO (jwren) these two can be consilidated
+
   final String version;
-  final String ijVersion;
+  final String? ijVersion;
   final bool isTestTarget;
   final bool isUnitTestTarget;
   final String ideaProduct;
   final String ideaVersion;
+  final String androidPluginVersion;
   final String dartPluginVersion;
+  final String javaVersion;
+
+  // TODO (jwren) can baseVersion be removed?
+  final String baseVersion;
 
   // plugin.xml variables
   final String sinceBuild;
-  final String untilBuild;
   final String pluginId = 'io.flutter';
-  final String release;
-  final List<dynamic> filesToSkip;
+  final String? release;
+  final List<String> filesToSkip;
   String channel;
-  String _changeLog;
+  String? _changeLog;
 
-  ArtifactManager artifacts = ArtifactManager();
-
-  Artifact product;
-  Artifact dartPlugin;
-
-  BuildSpec.fromJson(Map json, String releaseNum)
-      : release = releaseNum,
-        name = json['name'],
-        channel = json['channel'],
-        version = json['version'],
-        ijVersion = json['ijVersion'] ?? null,
-        ideaProduct = json['ideaProduct'],
-        ideaVersion = json['ideaVersion'],
-        dartPluginVersion = json['dartPluginVersion'],
-        sinceBuild = json['sinceBuild'],
-        untilBuild = json['untilBuild'],
-        filesToSkip = json['filesToSkip'] ?? [],
-        isUnitTestTarget = (json['isUnitTestTarget'] ?? 'false') == 'true',
-        isTestTarget = (json['isTestTarget'] ?? 'false') == 'true' {
-    createArtifacts();
-  }
+  BuildSpec.fromJson(Map<String, Object?> json, this.release)
+      : name = json['name'] as String,
+        channel = json['channel'] as String,
+        version = json['version'] as String,
+        ijVersion = json['ijVersion'] as String?,
+        ideaProduct = json['ideaProduct'] as String,
+        ideaVersion = json['ideaVersion'] as String,
+        baseVersion = (json['baseVersion'] ?? json['ideaVersion']) as String,
+        androidPluginVersion = json['androidPluginVersion'] as String,
+        dartPluginVersion = json['dartPluginVersion'] as String,
+        sinceBuild = json['sinceBuild'] as String,
+        filesToSkip = json['filesToSkip'] as List<String>? ?? [],
+        isUnitTestTarget = json['isUnitTestTarget'] == 'true',
+        isTestTarget = json['isTestTarget'] == 'true',
+        javaVersion = json['javaVersion'] as String;
 
   bool get copyIjVersion => isAndroidStudio && ijVersion != null;
 
   bool get isAndroidStudio => ideaProduct.contains('android-studio');
 
   bool get isDevChannel => channel == 'dev';
+
+  bool get isStableChannel => channel == 'stable';
 
   bool get isReleaseMode => release != null;
 
@@ -64,54 +67,15 @@ class BuildSpec {
   String get productFile => isAndroidStudio ? "$ideaProduct-ide" : ideaProduct;
 
   String get changeLog {
-    if (_changeLog == null) {
-      if (channel == 'stable') {
-        _changeLog = _parseChangelog();
-      } else {
-        _changeLog = '';
-      }
+    if (_changeLog case final changelog?) {
+      return changelog;
     }
 
-    return _changeLog;
-  }
-
-  void createArtifacts() {
-    if (ideaProduct == 'android-studio') {
-      product = Artifact('$ideaProduct-ide-$ideaVersion-mac.zip',
-          bareArchive: true, output: ideaProduct);
-      if (product.exists()) {
-        artifacts.add(product);
-      } else {
-        product = Artifact('$ideaProduct-ide-$ideaVersion-linux.zip',
-            output: ideaProduct);
-        if (product.exists()) {
-          artifacts.add(product);
-        } else {
-          product = Artifact('$ideaProduct-$ideaVersion-mac.zip',
-              bareArchive: true, output: ideaProduct);
-          if (product.exists()) {
-            artifacts.add(product);
-          } else {
-            product = Artifact('$ideaProduct-$ideaVersion-linux.zip',
-                output: ideaProduct);
-            if (product.exists()) {
-              artifacts.add(product);
-            } else {
-              // We don't know which one we need, so add both.
-              // We only put Linux versions in cloud storage.
-              artifacts.add(Artifact('$ideaProduct-$ideaVersion-linux.tar.gz',
-                  output: ideaProduct));
-              artifacts.add(Artifact('$ideaProduct-ide-$ideaVersion-linux.tar.gz',
-                  output: ideaProduct));
-            }
-          }
-        }
-      }
+    if (channel == 'stable') {
+      return _changeLog = _parseChangelog();
     } else {
-      product = artifacts.add(
-          Artifact('$ideaProduct-$ideaVersion.tar.gz', output: ideaProduct));
+      return _changeLog = '';
     }
-    dartPlugin = artifacts.add(Artifact('Dart-$dartPluginVersion.zip'));
   }
 
   String _parseChangelog() {
@@ -135,9 +99,16 @@ class BuildSpec {
         .replaceAll('</p>', '');
   }
 
+  @override
   String toString() {
-    return 'BuildSpec($ideaProduct $ideaVersion $dartPluginVersion $sinceBuild '
-        '$untilBuild version: "$release")';
+    return 'BuildSpec('
+        'ideaProduct: $ideaProduct, '
+        'ideaVersion: $ideaVersion, '
+        'baseVersion: $baseVersion, '
+        'dartPluginVersion: $dartPluginVersion, '
+        'javaVersion: $javaVersion, '
+        'since: $sinceBuild, '
+        'version: "$release")';
   }
 
   Future<BuildSpec> initChangeLog() async {
@@ -149,37 +120,12 @@ class BuildSpec {
 
   void buildForDev() {
     // Build everything. For release builds we do not build specs on the dev channel.
-    channel = 'dev';
+    if (channel == 'stable') channel = 'dev';
   }
 
   void buildForMaster() {
     // Ensure the dev-channel-only files are stored in release_master.
-    channel = 'stable';
+    if (channel == 'dev') channel = 'stable';
   }
 }
 
-/// This represents a BuildSpec that is used to generate the plugin.xml
-/// that is used during development. It needs to span all possible versions.
-/// The product-matrix.json file lists the versions in increasing build order.
-/// The first one is the earliest version used during development and the
-/// last one is the latest used during development. This BuildSpec combines
-/// those two.
-class SyntheticBuildSpec extends BuildSpec {
-  BuildSpec alternate;
-
-  SyntheticBuildSpec.fromJson(
-      Map json, String releaseNum, List<BuildSpec> specs)
-      : super.fromJson(json, releaseNum) {
-    try {
-      // 'isUnitTestTarget' should always be in the spec for the latest IntelliJ (not AS).
-      alternate = specs.firstWhere((s) => s.isUnitTestTarget);
-    } catch (StateError) {
-      log('No build spec defines "isUnitTestTarget"');
-      exit(1);
-    }
-  }
-
-  String get untilBuild => alternate.untilBuild;
-
-  bool get isSynthetic => true;
-}

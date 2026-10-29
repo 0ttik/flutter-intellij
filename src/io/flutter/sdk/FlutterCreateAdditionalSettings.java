@@ -24,11 +24,12 @@ public class FlutterCreateAdditionalSettings {
   @Nullable
   private String org;
   @Nullable
-  private Boolean swift;
-  @Nullable
   private Boolean kotlin;
   @Nullable
   private Boolean offlineMode;
+
+  @Nullable
+  private String projectName;
 
   // These objects get re-used each time the UI is rebuilt, including after the Finish button is clicked.
   @NotNull final private InitializeOnceBoolValueProperty platformAndroid = new InitializeOnceBoolValueProperty();
@@ -48,7 +49,6 @@ public class FlutterCreateAdditionalSettings {
                                           @Nullable FlutterProjectType type,
                                           @Nullable String description,
                                           @Nullable String org,
-                                          @Nullable Boolean swift,
                                           @Nullable Boolean kotlin,
                                           @Nullable Boolean offlineMode,
                                           @Nullable Boolean platformAndroid,
@@ -61,7 +61,6 @@ public class FlutterCreateAdditionalSettings {
     this.type = type;
     this.description = description;
     this.org = org;
-    this.swift = swift;
     this.kotlin = kotlin;
     this.offlineMode = offlineMode;
     this.platformAndroid.set(Boolean.TRUE.equals(platformAndroid));
@@ -70,6 +69,15 @@ public class FlutterCreateAdditionalSettings {
     this.platformLinux.set(Boolean.TRUE.equals(platformLinux));
     this.platformMacos.set(Boolean.TRUE.equals(platformMacos));
     this.platformWindows.set(Boolean.TRUE.equals(platformWindows));
+  }
+
+  @Nullable
+  public String getProjectName() {
+    return projectName;
+  }
+
+  public void setProjectName(@Nullable String projectName) {
+    this.projectName = projectName;
   }
 
   public void setType(@Nullable FlutterProjectType value) {
@@ -85,14 +93,11 @@ public class FlutterCreateAdditionalSettings {
     org = value;
   }
 
-  public void setSwift(boolean value) {
-    swift = value;
-  }
-
   public void setKotlin(boolean value) {
     kotlin = value;
   }
 
+  @NotNull
   @NonNls
   public List<String> getArgs() {
     final List<String> args = new ArrayList<>();
@@ -106,7 +111,9 @@ public class FlutterCreateAdditionalSettings {
     }
 
     if (type != null) {
-      args.add("--template");
+      if (type != FlutterProjectType.EMPTY_PROJECT) {
+        args.add("--template");
+      }
       args.add(type.arg);
     }
 
@@ -120,12 +127,7 @@ public class FlutterCreateAdditionalSettings {
       args.add(org);
     }
 
-    if (swift == null || Boolean.FALSE.equals(swift)) {
-      args.add("--ios-language");
-      args.add("objc");
-    }
-
-    if (kotlin == null || Boolean.FALSE.equals(kotlin)) {
+    if (kotlin == null || !kotlin) {
       args.add("--android-language");
       args.add("java");
     }
@@ -149,7 +151,7 @@ public class FlutterCreateAdditionalSettings {
     if (platformWindows.get()) {
       platforms.append("windows,");
     }
-    if (type.requiresPlatform && platforms.length() == 0) {
+    if (type.requiresPlatform && platforms.isEmpty()) {
       platforms.append("android,ios,");
     }
 
@@ -176,11 +178,6 @@ public class FlutterCreateAdditionalSettings {
   @Nullable
   public Boolean getKotlin() {
     return kotlin;
-  }
-
-  @Nullable
-  public Boolean getSwift() {
-    return swift;
   }
 
   @Nullable
@@ -302,11 +299,6 @@ public class FlutterCreateAdditionalSettings {
       return this;
     }
 
-    public Builder setSwift(@Nullable Boolean swift) {
-      this.swift = swift;
-      return this;
-    }
-
     public Builder setKotlin(@Nullable Boolean kotlin) {
       this.kotlin = kotlin;
       return this;
@@ -349,7 +341,7 @@ public class FlutterCreateAdditionalSettings {
 
     public FlutterCreateAdditionalSettings build() {
       return new FlutterCreateAdditionalSettings(
-        includeDriverTest, type, description, org, swift, kotlin, offlineMode,
+        includeDriverTest, type, description, org, kotlin, offlineMode,
         platformAndroid, platformIos, platformWeb, platformLinux, platformMacos, platformWindows);
     }
   }

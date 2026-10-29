@@ -14,10 +14,7 @@ import com.intellij.psi.impl.PsiFileFactoryImpl;
 import com.intellij.psi.impl.source.tree.AstBufferUtil;
 import com.jetbrains.lang.dart.DartLanguage;
 import com.jetbrains.lang.dart.DartTokenTypes;
-import com.jetbrains.lang.dart.psi.DartArgumentList;
-import com.jetbrains.lang.dart.psi.DartArguments;
-import com.jetbrains.lang.dart.psi.DartExpression;
-import com.jetbrains.lang.dart.psi.DartLiteralExpression;
+import com.jetbrains.lang.dart.psi.*;
 import io.flutter.FlutterBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,6 +22,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 import static io.flutter.dart.DartPsiUtil.getNewExprFromType;
 import static io.flutter.dart.DartPsiUtil.topmostReferenceExpression;
@@ -38,7 +36,7 @@ public class FlutterColorProvider implements ElementColorProvider {
     if (element.getNode().getElementType() != DartTokenTypes.IDENTIFIER) return null;
 
     final String name = element.getText();
-    if (!(name.equals("Colors") || name.equals("CupertinoColors") || name.equals("Color"))) return null;
+    if (name == null) return null;
 
     final PsiElement refExpr = topmostReferenceExpression(element);
     if (refExpr == null) return null;
@@ -47,25 +45,81 @@ public class FlutterColorProvider implements ElementColorProvider {
 
     if (parent.getNode().getElementType() == DartTokenTypes.ARRAY_ACCESS_EXPRESSION) {
       // Colors.blue[200]
+      if (!refExpr.getFirstChild().getText().equals("Colors") && !refExpr.getFirstChild().getText().equals("CupertinoColors")) {
+        return null;
+      }
+      if (name.equals(refExpr.getFirstChild().getText()) && refExpr.getChildren().length > 1) {
+        // Avoid duplicate resolves.
+        return null;
+      }
       final String code = AstBufferUtil.getTextSkippingWhitespaceComments(parent.getNode());
-      return parseColorText(code.substring(code.indexOf(name) + name.length() + 1), name);
+      return parseColorText(code.substring(code.indexOf(name)), name);
     }
     else if (parent.getNode().getElementType() == DartTokenTypes.CALL_EXPRESSION) {
       // foo(Color.fromRGBO(0, 255, 0, 0.5))
+      if (name.matches("fromARGB") || name.matches("fromRGBO")) {
+        // Avoid duplicate resolves.
+        return null;
+      }
+      if (parent.getLastChild() instanceof DartArguments && !name.matches("(Cupertino)?Color")) {
+        final DartArgumentList argumentList = ((DartArguments)parent.getLastChild()).getArgumentList();
+        if (argumentList == null) {
+          return null;
+        }
+        // Avoid duplicate resolves.
+        Color color = null;
+        final List<DartExpression> expressionList = argumentList.getExpressionList();
+        if (!expressionList.isEmpty()) {
+          final DartExpression colorExpression = expressionList.get(0);
+          color = parseColorElements(colorExpression, colorExpression.getFirstChild());
+        }
+        if (color != null) return null;
+      }
+      // Color.fromRGBO(0, 255, 0, 0.5)
       return parseColorElements(parent, refExpr);
     }
     else if (parent.getNode().getElementType() == DartTokenTypes.SIMPLE_TYPE) {
       // const Color.fromARGB(100, 255, 0, 0)
+      if (name.matches("fromARGB") || name.matches("fromRGBO")) {
+        // Avoid duplicate resolves.
+        return null;
+      }
       // parent.getParent().getParent() is a new expr
       parent = getNewExprFromType(parent);
       if (parent == null) return null;
       return parseColorElements(parent, refExpr);
     }
     else {
+      if (parent.getNode().getElementType() == DartTokenTypes.VAR_INIT ||
+          parent.getNode().getElementType() == DartTokenTypes.FUNCTION_BODY) {
+        if (name.equals(refExpr.getFirstChild().getText()) && refExpr.getChildren().length > 1) {
+          // Avoid duplicate resolves.
+          return null;
+        }
+        final PsiElement reference = resolveReferencedElement(refExpr);
+        if (reference != null && reference.getLastChild() != null) {
+          Color tryParseColor;
+          if (reference instanceof DartCallExpression) {
+            final DartExpression expression = ((DartCallExpression)reference).getExpression();
+            if (expression != null && expression.getLastChild() instanceof DartReferenceExpression) {
+              tryParseColor = parseColorElements(reference, expression);
+              if (tryParseColor != null) return tryParseColor;
+            }
+          }
+          final PsiElement lastChild = reference.getLastChild();
+          if (lastChild instanceof DartArguments && reference.getParent() != null) {
+            tryParseColor = parseColorElements(reference, reference.getParent());
+          }
+          else {
+            tryParseColor = parseColorElements(reference, reference.getLastChild());
+          }
+          if (tryParseColor != null) return tryParseColor;
+        }
+      }
       // name.equals(refExpr.getFirstChild().getText()) -> Colors.blue
       final PsiElement idNode = refExpr.getFirstChild();
       if (idNode == null) return null;
-      if (name.equals(idNode.getText())) {
+      if ((name.equals("Colors") || name.equals("CupertinoColors")) && name.equals(idNode.getText())) {
         final PsiElement selectorNode = refExpr.getLastChild();
         if (selectorNode == null) return null;
         final String code = AstBufferUtil.getTextSkippingWhitespaceComments(selectorNode.getNode());
@@ -75,11 +129,44 @@ public class FlutterColorProvider implements ElementColorProvider {
       final PsiElement child = refExpr.getLastChild();
       if (child == null) return null;
       if (child.getText().startsWith("shade")) {
-        final String code = AstBufferUtil.getTextSkippingWhitespaceComments(refExpr.getNode());
-        return parseColorText(code.substring(code.indexOf(name) + name.length() + 1), name);
+        if (idNode.getText().contains(name)) return null; // Avoid duplicate resolves.
+        String code = AstBufferUtil.getTextSkippingWhitespaceComments(refExpr.getNode());
+        code = code.replaceFirst("(Cupertino)?Colors\\.", "");
+        return parseColorText(code, name);
       }
     }
     return null;
+  }
+
+  @Nullable
+  private PsiElement resolveReferencedElement(@NotNull PsiElement element) {
+    if (element instanceof DartCallExpression && Objects.equals(element.getFirstChild().getText(), "Color")) {
+      return element;
+    }
+    final PsiElement symbol = element.getLastChild();
+    final PsiElement result;
+    if (symbol instanceof DartReference) {
+      result = ((DartReference)symbol).resolve();
+    }
+    else if (element instanceof DartReference) {
+      result = ((DartReference)element).resolve();
+    }
+    else {
+      return null;
+    }
+    if (!(result instanceof DartComponentName) || result.getParent() == null) return null;
+    final PsiElement declaration = result.getParent().getParent();
+    if (declaration instanceof DartClassMembers) return declaration;
+    if (!(declaration instanceof DartVarDeclarationList)) return null;
+    final PsiElement lastChild = declaration.getLastChild();
+    if (!(lastChild instanceof DartVarInit)) return null;
+
+    final PsiElement effectiveElement = lastChild.getLastChild();
+    // Recursively determine reference if the initialization is still a `DartReference`.
+    if (effectiveElement instanceof DartReference && !(effectiveElement instanceof DartCallExpression)) {
+      return resolveReferencedElement(effectiveElement);
+    }
+    return effectiveElement;
   }
 
   @Nullable
@@ -89,20 +176,27 @@ public class FlutterColorProvider implements ElementColorProvider {
     final String selector = selectorNode.getText();
     final boolean isFromARGB = "fromARGB".equals(selector);
     final boolean isFromRGBO = "fromRGBO".equals(selector);
-    if (isFromARGB || isFromRGBO) {
-      String code = AstBufferUtil.getTextSkippingWhitespaceComments(parent.getNode());
-      if (code.startsWith("constColor(")) {
-        code = code.substring(5);
+    try {
+      if (isFromARGB || isFromRGBO) {
+        String code = AstBufferUtil.getTextSkippingWhitespaceComments(parent.getNode());
+        if (code.startsWith("constColor(") || code.startsWith("constColor.")) {
+          code = code.substring(5);
+        }
+        return ExpressionParsingUtils.parseColorComponents(code.substring(code.indexOf(selector)), selector + "(", isFromARGB);
       }
-      return ExpressionParsingUtils.parseColorComponents(code.substring(code.indexOf(selector)), selector + "(", isFromARGB);
+      final PsiElement args = parent.getLastChild();
+      if (args != null && args.getNode().getElementType() == DartTokenTypes.ARGUMENTS) {
+        String code = AstBufferUtil.getTextSkippingWhitespaceComments(parent.getNode());
+        if (code.startsWith("constColor(")) {
+          code = code.substring(5);
+        }
+        return ExpressionParsingUtils.parseColor(code);
+      }
     }
-    final PsiElement args = parent.getLastChild();
-    if (args != null && args.getNode().getElementType() == DartTokenTypes.ARGUMENTS) {
-      String code = AstBufferUtil.getTextSkippingWhitespaceComments(parent.getNode());
-      if (code.startsWith("constColor(")) {
-        code = code.substring(5);
-      }
-      return ExpressionParsingUtils.parseColor(code);
+    catch (IndexOutOfBoundsException e) {
+      // This is rare but possible in 2023.3, see https://github.com/flutter/flutter-intellij/issues/7285
+      // from the call to AstBufferUtil.getTextSkippingWhitespaceComments()
+      return null;
     }
     return null;
   }
@@ -126,7 +220,7 @@ public class FlutterColorProvider implements ElementColorProvider {
   public void setColorTo(@NotNull PsiElement element, @NotNull Color color) {
     // Not trying to look up Material or Cupertino colors.
     // Unfortunately, there is no way to prevent the color picker from showing (if clicked) for those expressions.
-    if (!element.getText().equals("Color")) return;
+    if (!Objects.equals(element.getText(), "Color")) return;
     final Document document = PsiDocumentManager.getInstance(element.getProject()).getDocument(element.getContainingFile());
     final Runnable command = () -> {
       final PsiElement refExpr = topmostReferenceExpression(element);

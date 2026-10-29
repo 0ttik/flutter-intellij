@@ -8,13 +8,15 @@ package io.flutter.editor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.IconLoader;
 import io.flutter.FlutterUtils;
+import io.flutter.logging.PluginLogger;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.io.IOException;
 import java.util.Properties;
 
 public class FlutterCupertinoIcons {
-  private static final Logger LOG = Logger.getInstance(FlutterCupertinoIcons.class);
+  private static final @NotNull Logger LOG = PluginLogger.createLogger(FlutterCupertinoIcons.class);
 
   private static final Properties icons;
 
@@ -25,7 +27,7 @@ public class FlutterCupertinoIcons {
       icons.load(FlutterCupertinoIcons.class.getResourceAsStream("/flutter/icons/cupertino.properties"));
     }
     catch (IOException e) {
-      FlutterUtils.warn(LOG, e);
+      FlutterUtils.warn(LOG, "Failed to load cupertino icons", e, true);
     }
   }
 

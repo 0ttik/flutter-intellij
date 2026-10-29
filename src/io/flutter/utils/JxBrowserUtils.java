@@ -6,51 +6,68 @@
 package io.flutter.utils;
 
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.util.system.CpuArch;
+import io.flutter.settings.FlutterSettings;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Properties;
 
 public class JxBrowserUtils {
   private static final String JXBROWSER_FILE_PREFIX = "jxbrowser";
-  private static final String JXBROWSER_FILE_VERSION = "7.13";
+  private static final String JXBROWSER_FILE_VERSION = "8.9.0";
   private static final String JXBROWSER_FILE_SUFFIX = "jar";
   public static final String LICENSE_PROPERTY_NAME = "jxbrowser.license.key";
 
-  public static String getPlatformFileName() throws FileNotFoundException {
+  public String getPlatformFileName() throws FileNotFoundException {
     String name = "";
+    final boolean is64Bit = Objects.requireNonNull(CpuArch.CURRENT).width == 64;
     if (SystemInfo.isMac) {
-      name = "mac";
-    } else if (SystemInfo.isWindows) {
-      if (SystemInfo.is32Bit) {
+      if (CpuArch.isArm64()) {
+        name = "mac-arm";
+      }
+      else {
+        name = "mac";
+      }
+    }
+    else if (SystemInfo.isWindows) {
+      if (CpuArch.is32Bit()) {
         name = "win32";
-      } else if (SystemInfo.is64Bit) {
+      }
+      else if (is64Bit) {
         name = "win64";
       }
-    } else if (SystemInfo.isLinux && SystemInfo.is64Bit) {
+    }
+    else if (SystemInfo.isLinux && is64Bit) {
       name = "linux64";
     }
 
     if (name.isEmpty()) {
-      throw new FileNotFoundException("Unable to find matching JxBrowser platform file for: " + SystemInfo.getOsNameAndVersion());
+      throw new FileNotFoundException("Unable to find matching JxBrowser platform file for: " + SystemUtils.getOsNameAndVersion());
     }
 
     return String.format("%s-%s-%s.%s", JXBROWSER_FILE_PREFIX, name, JXBROWSER_FILE_VERSION, JXBROWSER_FILE_SUFFIX);
   }
 
-  public static String getApiFileName() {
+  public String getApiFileName() {
     return String.format("%s-%s.%s", JXBROWSER_FILE_PREFIX, JXBROWSER_FILE_VERSION, JXBROWSER_FILE_SUFFIX);
   }
 
-  public static String getSwingFileName() {
+  public String getSwingFileName() {
     return String.format("%s-swing-%s.%s", JXBROWSER_FILE_PREFIX, JXBROWSER_FILE_VERSION, JXBROWSER_FILE_SUFFIX);
   }
 
-  public static String getDistributionLink(String fileName) {
-    return "https://storage.googleapis.com/flutter_infra/flutter/intellij/jxbrowser/" + fileName;
+  @NotNull
+  public String getDistributionLink(@NotNull String fileName) {
+    String envBaseUrl = java.lang.System.getenv("FLUTTER_STORAGE_BASE_URL");
+    String baseUrl = envBaseUrl == null ? "https://storage.googleapis.com" : envBaseUrl;
+    return String.format("%s/flutter_infra_release/flutter/intellij/jxbrowser/%s", baseUrl, fileName);
   }
 
-  public static String getJxBrowserKey() throws FileNotFoundException {
+  @NotNull
+  public String getJxBrowserKey() throws FileNotFoundException {
     if (JxBrowserUtils.class.getResource("/jxbrowser/jxbrowser.properties") == null) {
       throw new FileNotFoundException("jxbrowser.properties file does not exist");
     }
@@ -71,7 +88,12 @@ public class JxBrowserUtils {
     return value;
   }
 
-  public static boolean licenseIsSet() {
+  public boolean licenseIsSet() {
     return System.getProperty(JxBrowserUtils.LICENSE_PROPERTY_NAME) != null;
+  }
+
+
+  public boolean skipInstallation() {
+    return FlutterSettings.getInstance().isEnableJcefBrowser();
   }
 }

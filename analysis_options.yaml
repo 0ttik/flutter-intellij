@@ -1,12 +1,13 @@
+include: package:lints/recommended.yaml
+
 analyzer:
-  strong-mode:
-    implicit-casts: false
   exclude:
     - 'out/**'
     - 'tool/icon_generator/**'
+  language:
+    strict-casts: true
 
 linter:
   rules:
-    - prefer_single_quotes
-    - type_annotate_public_apis
+    - directives_ordering
     - unawaited_futures

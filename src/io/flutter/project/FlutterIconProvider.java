@@ -27,7 +27,8 @@ import javax.swing.*;
 import java.util.Objects;
 
 public class FlutterIconProvider extends IconProvider {
-  private static final Icon TEST_FILE = overlayIcons(DartFileType.INSTANCE.getIcon(), AllIcons.Nodes.JunitTestMark);
+  @SuppressWarnings("DataFlowIssue") private static final @NotNull Icon TEST_FILE =
+    overlayIcons(DartFileType.INSTANCE.getIcon(), AllIcons.Nodes.JunitTestMark);
 
   @Nullable
   public Icon getIcon(@NotNull PsiElement element, @IconFlags int flags) {
@@ -55,13 +56,13 @@ public class FlutterIconProvider extends IconProvider {
 
       if (Objects.equals(dir, root.getAndroidDir())) return AllIcons.Nodes.KeymapTools;
       if (Objects.equals(dir, root.getiOsDir())) return AllIcons.Nodes.KeymapTools;
+      if (Objects.equals(dir, root.getIntegrationTestDir())) return AllIcons.Nodes.TestSourceFolder;
 
       if (dir.isDirectory() && dir.getName().equals(".idea")) return AllIcons.Modules.GeneratedFolder;
     }
 
     // Files.
-    if (element instanceof DartFile) {
-      final DartFile dartFile = (DartFile)element;
+    if (element instanceof DartFile dartFile) {
       final VirtualFile file = dartFile.getVirtualFile();
       if (file == null || !file.isInLocalFileSystem()) return null;
 
@@ -76,7 +77,7 @@ public class FlutterIconProvider extends IconProvider {
   }
 
   @NotNull
-  private static Icon overlayIcons(@NotNull Icon... icons) {
+  private static Icon overlayIcons(@NotNull Icon @NotNull ... icons) {
     final LayeredIcon result = new LayeredIcon(icons.length);
 
     for (int layer = 0; layer < icons.length; layer++) {

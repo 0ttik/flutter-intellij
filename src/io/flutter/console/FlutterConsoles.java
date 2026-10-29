@@ -7,12 +7,12 @@ package io.flutter.console;
 
 import com.intellij.execution.process.ColoredProcessHandler;
 import com.intellij.execution.ui.ConsoleViewContentType;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.MessageView;
+import io.flutter.utils.OpenApiUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,8 +37,8 @@ public class FlutterConsoles {
                                          @NotNull Runnable onReady) {
 
     // Getting a MessageView has to happen on the UI thread.
-    ApplicationManager.getApplication().invokeLater(() -> {
-      final MessageView messageView = MessageView.SERVICE.getInstance(project);
+    OpenApiUtils.safeInvokeLater(() -> {
+      final MessageView messageView = MessageView.getInstance(project);
       messageView.runWhenInitialized(() -> {
         final FlutterConsole console = findOrCreate(project, module);
         console.watchProcess(process);
@@ -54,8 +54,8 @@ public class FlutterConsoles {
 
   public static void displayMessage(@NotNull Project project, @Nullable Module module, @NotNull String message, boolean clearContent) {
     // Getting a MessageView has to happen on the UI thread.
-    ApplicationManager.getApplication().invokeLater(() -> {
-      final MessageView messageView = MessageView.SERVICE.getInstance(project);
+    OpenApiUtils.safeInvokeLater(() -> {
+      final MessageView messageView = MessageView.getInstance(project);
       messageView.runWhenInitialized(() -> {
         final FlutterConsole console = findOrCreate(project, module);
         if (clearContent) {
@@ -69,7 +69,8 @@ public class FlutterConsoles {
 
   @NotNull
   static FlutterConsole findOrCreate(@NotNull Project project, @Nullable Module module) {
-    for (Content content : MessageView.SERVICE.getInstance(project).getContentManager().getContents()) {
+    for (Content content : MessageView.getInstance(project).getContentManager().getContents()) {
+      if (content == null) continue;
       final FlutterConsole console = content.getUserData(KEY);
       if (console != null && console.module == module) {
         assert (project == console.project);

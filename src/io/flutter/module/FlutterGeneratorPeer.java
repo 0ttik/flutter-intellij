@@ -14,16 +14,21 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.TextComponentAccessor;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.ComboboxWithBrowseButton;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.util.ui.update.UiNotifyConnector;
 import com.intellij.xml.util.XmlStringUtil;
 import io.flutter.FlutterBundle;
-import io.flutter.FlutterUtils;
 import io.flutter.module.settings.SettingsHelpForm;
 import io.flutter.sdk.FlutterSdk;
 import io.flutter.sdk.FlutterSdkUtil;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
 import javax.swing.ComboBoxEditor;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -31,9 +36,6 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextPane;
 import javax.swing.event.DocumentEvent;
 import javax.swing.text.JTextComponent;
-import org.apache.commons.lang.StringUtils;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 public class FlutterGeneratorPeer {
   private final WizardContext myContext;
@@ -55,20 +57,22 @@ public class FlutterGeneratorPeer {
     // Hide pending real content.
     myVersionContent.setVisible(false);
 
-    if (!FlutterUtils.isNewAndroidStudioProjectWizard()) {
-      myHelpForm.getComponent().setVisible(false);
-    }
+    // TODO(messick) Remove this field.
+    myHelpForm.getComponent().setVisible(false);
 
     init();
   }
 
   private void init() {
-    mySdkPathComboWithBrowse.getComboBox().setEditable(true);
-    FlutterSdkUtil.addKnownSDKPathsToCombo(mySdkPathComboWithBrowse.getComboBox());
+    final JComboBox<String> sdkCombo = mySdkPathComboWithBrowse.getComboBox();
+    sdkCombo.setEditable(true);
 
-    mySdkPathComboWithBrowse.addBrowseFolderListener(FlutterBundle.message("flutter.sdk.browse.path.label"), null, null,
-                                                     FileChooserDescriptorFactory.createSingleFolderDescriptor(),
-                                                     TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT);
+    // The combo may not be showing yet (e.g. switching project type mid-wizard); wait until
+    // it is so FlutterSdkUtil can resolve the dialog's real modality state.
+    UiNotifyConnector.doWhenFirstShown(sdkCombo, () -> populateSdkCombo(sdkCombo));
+
+    mySdkPathComboWithBrowse.addBrowseFolderListener(null, FileChooserDescriptorFactory.createSingleFolderDescriptor()
+      .withTitle(FlutterBundle.message("flutter.sdk.browse.path.label")), TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT);
     mySdkPathComboWithBrowse.getComboBox().addActionListener(e -> fillSdkCache());
     fillSdkCache();
 
@@ -84,6 +88,20 @@ public class FlutterGeneratorPeer {
     errorPane.setVisible(false);
   }
 
+  private void populateSdkCombo(@NotNull JComboBox<String> combo) {
+    FlutterSdkUtil.addKnownSDKPathsToCombo(combo);
+    if (combo.getModel().getSize() == 0) {
+      // If no SDKs are found, try to use the one from the FLUTTER_SDK environment variable.
+      // This ensures the SDK path is pre-filled when the combo box is empty, not requiring
+      // a running Application which is the case for users and bots on the initial startup
+      // experience.
+      final String flutterSDKPath = System.getenv("FLUTTER_SDK");
+      if (StringUtil.isNotEmpty(flutterSDKPath)) {
+        combo.setSelectedItem(flutterSDKPath);
+      }
+    }
+  }
+
   private void fillSdkCache() {
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
       String path = (String)mySdkPathComboWithBrowse.getComboBox().getSelectedItem();
@@ -91,7 +109,6 @@ public class FlutterGeneratorPeer {
         FlutterSdk sdk = FlutterSdk.forPath(path);
         if (sdk != null) {
           sdk.queryConfiguredPlatforms(false);
-          sdk.queryFlutterChannel(false);
         }
       }
     });
@@ -125,7 +142,7 @@ public class FlutterGeneratorPeer {
   @Nullable
   private ValidationInfo validateSdk() {
     final String sdkPath = getSdkComboPath();
-    if (StringUtils.isEmpty(sdkPath)) {
+    if (StringUtil.isEmpty(sdkPath)) {
       return new ValidationInfo("A Flutter SDK must be specified for project creation.", mySdkPathComboWithBrowse);
     }
     final String message = FlutterSdkUtil.getErrorMessageIfWrongSdkRootPath(sdkPath);
