@@ -19,7 +19,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.PathUtil;
 import io.flutter.FlutterBundle;
 import io.flutter.FlutterMessages;
 import io.flutter.android.IntelliJAndroidSdk;
@@ -27,12 +26,14 @@ import io.flutter.console.FlutterConsoles;
 import io.flutter.dart.DartPlugin;
 import com.jetbrains.lang.dart.analytics.Analytics;
 import io.flutter.logging.PluginLogger;
+import io.flutter.settings.FlutterSettings;
 import io.flutter.utils.MostlySilentColoredProcessHandler;
 import io.flutter.utils.ProcessAdapter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -86,7 +87,7 @@ public class FlutterCommand {
    * Returns a displayable version of the command, with potential file paths redacted if path logging is disabled.
    */
   public String getSanitizedDisplayCommand() {
-    if (PluginLogger.isFilePathLoggingEnabled()) {
+    if (FlutterSettings.getInstance().isFilePathLoggingEnabled()) {
       return getDisplayCommand();
     }
 
@@ -346,11 +347,13 @@ public class FlutterCommand {
     }
   }
 
-  public static @NotNull String safeCommandLog(@NotNull GeneralCommandLine commandLine) {
-    if (PluginLogger.isFilePathLoggingEnabled()) {
-      return commandLine.toString();
+  private @NotNull String safeCommandLog(@NotNull GeneralCommandLine commandLine) {
+    if (FlutterSettings.getInstance().isFilePathLoggingEnabled()) {
+      final String fullString = commandLine.toString();
+      return fullString != null ? fullString : "";
     }
 
-    return PathUtil.getFileName(commandLine.getExePath()) + " " + commandLine.getParametersList();
+    final Path path = Path.of(commandLine.getExePath());
+    return path.getFileName() + " " + commandLine.getParametersList();
   }
 }
